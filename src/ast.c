@@ -38,11 +38,13 @@ ASTNode *ast_return(ASTNode *expr) {
     return node;
 }
 
-ASTNode *ast_function(const char *name, ASTNode *body) {
+ASTNode *ast_function(const char *name, char **params, int param_count, ASTNode *body) {
     ASTNode *node = malloc(sizeof(ASTNode));
     if (!node) return NULL;
     node->kind = NODE_FUNCTION;
     node->data.func.name = name;
+    node->data.func.params = params;
+    node->data.func.param_count = param_count;
     node->data.func.body = body;
     return node;
 }
@@ -90,6 +92,55 @@ ASTNode *ast_expr_stmt(ASTNode *expr) {
     return node;
 }
 
+ASTNode *ast_call(char *name, ASTNode **args, int arg_count) {
+    ASTNode *node = malloc(sizeof(ASTNode));
+    if (!node) return NULL;
+    node->kind = NODE_CALL;
+    node->data.call.name = name;
+    node->data.call.args = args;
+    node->data.call.arg_count = arg_count;
+    return node;
+}
+
+ASTNode *ast_program(ASTNode **functions, int count) {
+    ASTNode *node = malloc(sizeof(ASTNode));
+    if (!node) return NULL;
+    node->kind = NODE_PROGRAM;
+    node->data.program.functions = functions;
+    node->data.program.count = count;
+    return node;
+}
+
+ASTNode *ast_if(ASTNode *cond, ASTNode *then_body, ASTNode *else_body) {
+    ASTNode *node = malloc(sizeof(ASTNode));
+    if (!node) return NULL;
+    node->kind = NODE_IF;
+    node->data.if_stmt.cond = cond;
+    node->data.if_stmt.then_body = then_body;
+    node->data.if_stmt.else_body = else_body;
+    return node;
+}
+
+ASTNode *ast_while(ASTNode *cond, ASTNode *body) {
+    ASTNode *node = malloc(sizeof(ASTNode));
+    if (!node) return NULL;
+    node->kind = NODE_WHILE;
+    node->data.while_stmt.cond = cond;
+    node->data.while_stmt.body = body;
+    return node;
+}
+
+ASTNode *ast_for(ASTNode *init, ASTNode *cond, ASTNode *post, ASTNode *body) {
+    ASTNode *node = malloc(sizeof(ASTNode));
+    if (!node) return NULL;
+    node->kind = NODE_FOR;
+    node->data.for_stmt.init = init;
+    node->data.for_stmt.cond = cond;
+    node->data.for_stmt.post = post;
+    node->data.for_stmt.body = body;
+    return node;
+}
+
 void ast_print(ASTNode *node, int indent) {
     if (!node) return;
 
@@ -122,8 +173,18 @@ void ast_print(ASTNode *node, int indent) {
             ast_print(node->data.ret.expr, indent + 1);
             break;
         case NODE_FUNCTION:
-            printf("Function(%s)\n", node->data.func.name);
+            printf("Function(%s, %d params)\n", node->data.func.name, node->data.func.param_count);
             ast_print(node->data.func.body, indent + 1);
+            break;
+        case NODE_CALL:
+            printf("Call(%s, %d args)\n", node->data.call.name, node->data.call.arg_count);
+            for (int i = 0; i < node->data.call.arg_count; i++)
+                ast_print(node->data.call.args[i], indent + 1);
+            break;
+        case NODE_PROGRAM:
+            printf("Program\n");
+            for (int i = 0; i < node->data.program.count; i++)
+                ast_print(node->data.program.functions[i], indent + 1);
             break;
         case NODE_VAR_DECL:
             printf("VarDecl(%s)\n", node->data.var_decl.name);
@@ -146,6 +207,28 @@ void ast_print(ASTNode *node, int indent) {
             printf("ExprStmt\n");
             ast_print(node->data.expr_stmt.expr, indent + 1);
             break;
+        case NODE_IF:
+            printf("If\n");
+            ast_print(node->data.if_stmt.cond, indent + 1);
+            ast_print(node->data.if_stmt.then_body, indent + 1);
+            if (node->data.if_stmt.else_body)
+                ast_print(node->data.if_stmt.else_body, indent + 1);
+            break;
+        case NODE_WHILE:
+            printf("While\n");
+            ast_print(node->data.while_stmt.cond, indent + 1);
+            ast_print(node->data.while_stmt.body, indent + 1);
+            break;
+        case NODE_FOR:
+            printf("For\n");
+            if (node->data.for_stmt.init)
+                ast_print(node->data.for_stmt.init, indent + 1);
+            if (node->data.for_stmt.cond)
+                ast_print(node->data.for_stmt.cond, indent + 1);
+            if (node->data.for_stmt.post)
+                ast_print(node->data.for_stmt.post, indent + 1);
+            ast_print(node->data.for_stmt.body, indent + 1);
+            break;
     }
 }
 
@@ -167,7 +250,21 @@ void ast_free(ASTNode *node) {
             break;
         case NODE_FUNCTION:
             free((char *)node->data.func.name);
+            for (int i = 0; i < node->data.func.param_count; i++)
+                free(node->data.func.params[i]);
+            free(node->data.func.params);
             ast_free(node->data.func.body);
+            break;
+        case NODE_CALL:
+            free(node->data.call.name);
+            for (int i = 0; i < node->data.call.arg_count; i++)
+                ast_free(node->data.call.args[i]);
+            free(node->data.call.args);
+            break;
+        case NODE_PROGRAM:
+            for (int i = 0; i < node->data.program.count; i++)
+                ast_free(node->data.program.functions[i]);
+            free(node->data.program.functions);
             break;
         case NODE_VAR_DECL:
             free(node->data.var_decl.name);
@@ -187,6 +284,21 @@ void ast_free(ASTNode *node) {
             break;
         case NODE_EXPR_STMT:
             ast_free(node->data.expr_stmt.expr);
+            break;
+        case NODE_IF:
+            ast_free(node->data.if_stmt.cond);
+            ast_free(node->data.if_stmt.then_body);
+            ast_free(node->data.if_stmt.else_body);
+            break;
+        case NODE_WHILE:
+            ast_free(node->data.while_stmt.cond);
+            ast_free(node->data.while_stmt.body);
+            break;
+        case NODE_FOR:
+            ast_free(node->data.for_stmt.init);
+            ast_free(node->data.for_stmt.cond);
+            ast_free(node->data.for_stmt.post);
+            ast_free(node->data.for_stmt.body);
             break;
     }
 

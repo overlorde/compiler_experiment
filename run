@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
+CC="$DIR/build/cc"
+
+if [[ $# -lt 1 ]]; then
+    echo "usage: run <file.c>" >&2
+    exit 1
+fi
+
+if [[ ! -x "$CC" ]]; then
+    echo "Compiler not found — building..." >&2
+    make -C "$DIR" -j$(nproc) >&2
+fi
+
+tmp_o=$(mktemp /tmp/cc_XXXXXX.o)
+tmp_exe=$(mktemp /tmp/cc_XXXXXX)
+trap 'rm -f "$tmp_o" "$tmp_exe"' EXIT
+
+"$CC" "$1" "$tmp_o"
+cc "$tmp_o" -o "$tmp_exe"
+"$tmp_exe"

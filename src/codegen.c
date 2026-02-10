@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <llvm-c/Core.h>
@@ -39,6 +40,9 @@ static LLVMValueRef symtab_lookup(SymbolTable *st, const char *name) {
     fprintf(stderr, "codegen: undefined variable '%s'\n", name);
     return NULL;
 }
+
+/* Module ref needed for function lookups in codegen_expr */
+static LLVMModuleRef g_module;
 
 /* Walk the AST and produce an LLVM value */
 static LLVMValueRef codegen_expr(LLVMBuilderRef builder, SymbolTable *st, ASTNode *node) {
@@ -116,10 +120,34 @@ static LLVMValueRef codegen_expr(LLVMBuilderRef builder, SymbolTable *st, ASTNod
             return LLVMBuildLoad2(builder, LLVMInt32Type(), alloca, node->data.var_ref.name);
         }
 
+        case NODE_CALL: {
+            LLVMValueRef callee = LLVMGetNamedFunction(g_module, node->data.call.name);
+            if (!callee) {
+                fprintf(stderr, "codegen: undefined function '%s'\n", node->data.call.name);
+                return NULL;
+            }
+            int nargs = node->data.call.arg_count;
+            LLVMValueRef *args = malloc(nargs * sizeof(LLVMValueRef));
+            for (int i = 0; i < nargs; i++) {
+                args[i] = codegen_expr(builder, st, node->data.call.args[i]);
+                if (!args[i]) { free(args); return NULL; }
+            }
+            LLVMTypeRef callee_type = LLVMGlobalGetValueType(callee);
+            LLVMValueRef result = LLVMBuildCall2(builder, callee_type, callee, args, nargs, "call");
+            free(args);
+            return result;
+        }
+
         default:
             fprintf(stderr, "codegen: unexpected node kind %d in expression\n", node->kind);
             return NULL;
     }
+}
+
+/* Check if the current basic block already has a terminator */
+static int block_has_terminator(LLVMBuilderRef builder) {
+    LLVMBasicBlockRef bb = LLVMGetInsertBlock(builder);
+    return LLVMGetBasicBlockTerminator(bb) != NULL;
 }
 
 /* Emit a statement. Returns 0 on success, non-zero on error. */
@@ -169,6 +197,110 @@ static int codegen_stmt(LLVMBuilderRef builder, SymbolTable *st, ASTNode *node) 
             return 0;
         }
 
+        case NODE_IF: {
+            LLVMValueRef cond_val = codegen_expr(builder, st, node->data.if_stmt.cond);
+            if (!cond_val) return 1;
+            /* Convert to i1: cond != 0 */
+            LLVMValueRef zero = LLVMConstInt(LLVMInt32Type(), 0, 0);
+            LLVMValueRef cmp = LLVMBuildICmp(builder, LLVMIntNE, cond_val, zero, "ifcond");
+
+            LLVMValueRef func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder));
+            LLVMBasicBlockRef then_bb = LLVMAppendBasicBlock(func, "then");
+            LLVMBasicBlockRef else_bb = LLVMAppendBasicBlock(func, "else");
+            LLVMBasicBlockRef merge_bb = LLVMAppendBasicBlock(func, "ifmerge");
+
+            LLVMBuildCondBr(builder, cmp, then_bb, else_bb);
+
+            /* then */
+            LLVMPositionBuilderAtEnd(builder, then_bb);
+            if (codegen_stmt(builder, st, node->data.if_stmt.then_body)) return 1;
+            if (!block_has_terminator(builder))
+                LLVMBuildBr(builder, merge_bb);
+
+            /* else */
+            LLVMPositionBuilderAtEnd(builder, else_bb);
+            if (node->data.if_stmt.else_body) {
+                if (codegen_stmt(builder, st, node->data.if_stmt.else_body)) return 1;
+            }
+            if (!block_has_terminator(builder))
+                LLVMBuildBr(builder, merge_bb);
+
+            LLVMPositionBuilderAtEnd(builder, merge_bb);
+            return 0;
+        }
+
+        case NODE_WHILE: {
+            LLVMValueRef func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder));
+            LLVMBasicBlockRef cond_bb = LLVMAppendBasicBlock(func, "whilecond");
+            LLVMBasicBlockRef body_bb = LLVMAppendBasicBlock(func, "whilebody");
+            LLVMBasicBlockRef after_bb = LLVMAppendBasicBlock(func, "whileafter");
+
+            LLVMBuildBr(builder, cond_bb);
+
+            /* cond */
+            LLVMPositionBuilderAtEnd(builder, cond_bb);
+            LLVMValueRef cond_val = codegen_expr(builder, st, node->data.while_stmt.cond);
+            if (!cond_val) return 1;
+            LLVMValueRef zero = LLVMConstInt(LLVMInt32Type(), 0, 0);
+            LLVMValueRef cmp = LLVMBuildICmp(builder, LLVMIntNE, cond_val, zero, "whilecond");
+            LLVMBuildCondBr(builder, cmp, body_bb, after_bb);
+
+            /* body */
+            LLVMPositionBuilderAtEnd(builder, body_bb);
+            if (codegen_stmt(builder, st, node->data.while_stmt.body)) return 1;
+            if (!block_has_terminator(builder))
+                LLVMBuildBr(builder, cond_bb);
+
+            LLVMPositionBuilderAtEnd(builder, after_bb);
+            return 0;
+        }
+
+        case NODE_FOR: {
+            int saved = st->count;
+            LLVMValueRef func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder));
+
+            /* init */
+            if (node->data.for_stmt.init) {
+                if (codegen_stmt(builder, st, node->data.for_stmt.init)) return 1;
+            }
+
+            LLVMBasicBlockRef cond_bb = LLVMAppendBasicBlock(func, "forcond");
+            LLVMBasicBlockRef body_bb = LLVMAppendBasicBlock(func, "forbody");
+            LLVMBasicBlockRef post_bb = LLVMAppendBasicBlock(func, "forpost");
+            LLVMBasicBlockRef after_bb = LLVMAppendBasicBlock(func, "forafter");
+
+            LLVMBuildBr(builder, cond_bb);
+
+            /* cond */
+            LLVMPositionBuilderAtEnd(builder, cond_bb);
+            if (node->data.for_stmt.cond) {
+                LLVMValueRef cond_val = codegen_expr(builder, st, node->data.for_stmt.cond);
+                if (!cond_val) return 1;
+                LLVMValueRef zero = LLVMConstInt(LLVMInt32Type(), 0, 0);
+                LLVMValueRef cmp = LLVMBuildICmp(builder, LLVMIntNE, cond_val, zero, "forcond");
+                LLVMBuildCondBr(builder, cmp, body_bb, after_bb);
+            } else {
+                LLVMBuildBr(builder, body_bb);
+            }
+
+            /* body */
+            LLVMPositionBuilderAtEnd(builder, body_bb);
+            if (codegen_stmt(builder, st, node->data.for_stmt.body)) return 1;
+            if (!block_has_terminator(builder))
+                LLVMBuildBr(builder, post_bb);
+
+            /* post */
+            LLVMPositionBuilderAtEnd(builder, post_bb);
+            if (node->data.for_stmt.post) {
+                if (codegen_stmt(builder, st, node->data.for_stmt.post)) return 1;
+            }
+            LLVMBuildBr(builder, cond_bb);
+
+            LLVMPositionBuilderAtEnd(builder, after_bb);
+            st->count = saved;
+            return 0;
+        }
+
         default:
             fprintf(stderr, "codegen: unexpected node kind %d in statement\n", node->kind);
             return 1;
@@ -214,30 +346,55 @@ int codegen(ASTNode *ast, const char *output_path) {
 
     /* 2. Create module */
     LLVMModuleRef mod = LLVMModuleCreateWithName("main");
+    g_module = mod;
 
-    /* 3. Create main function: int main(void) */
-    LLVMTypeRef ret_type = LLVMInt32Type();
-    LLVMTypeRef func_type = LLVMFunctionType(ret_type, NULL, 0, 0);
-    LLVMValueRef func = LLVMAddFunction(mod, ast->data.func.name, func_type);
-
-    /* 4. Entry block + builder */
-    LLVMBasicBlockRef entry = LLVMAppendBasicBlock(func, "entry");
     LLVMBuilderRef builder = LLVMCreateBuilder();
-    LLVMPositionBuilderAtEnd(builder, entry);
+    int func_count = ast->data.program.count;
+    ASTNode **functions = ast->data.program.functions;
 
-    /* 5. Emit body */
-    SymbolTable st;
-    symtab_init(&st);
-    if (codegen_stmt(builder, &st, ast->data.func.body)) {
-        LLVMDisposeBuilder(builder);
-        LLVMDisposeModule(mod);
-        return 1;
+    /* Pass 1: declare all functions */
+    for (int i = 0; i < func_count; i++) {
+        ASTNode *fn = functions[i];
+        int nparams = fn->data.func.param_count;
+        LLVMTypeRef *param_types = malloc(nparams * sizeof(LLVMTypeRef));
+        for (int j = 0; j < nparams; j++)
+            param_types[j] = LLVMInt32Type();
+        LLVMTypeRef ftype = LLVMFunctionType(LLVMInt32Type(), param_types, nparams, 0);
+        LLVMAddFunction(mod, fn->data.func.name, ftype);
+        free(param_types);
     }
 
-    /* 6. Emit object file */
+    /* Pass 2: emit bodies */
+    for (int i = 0; i < func_count; i++) {
+        ASTNode *fn = functions[i];
+        LLVMValueRef func = LLVMGetNamedFunction(mod, fn->data.func.name);
+
+        LLVMBasicBlockRef entry = LLVMAppendBasicBlock(func, "entry");
+        LLVMPositionBuilderAtEnd(builder, entry);
+
+        SymbolTable st;
+        symtab_init(&st);
+
+        /* Alloca + store each parameter */
+        for (int j = 0; j < fn->data.func.param_count; j++) {
+            LLVMValueRef param = LLVMGetParam(func, j);
+            LLVMValueRef alloca = LLVMBuildAlloca(builder, LLVMInt32Type(),
+                                                   fn->data.func.params[j]);
+            LLVMBuildStore(builder, param, alloca);
+            symtab_add(&st, fn->data.func.params[j], alloca);
+        }
+
+        if (codegen_stmt(builder, &st, fn->data.func.body)) {
+            LLVMDisposeBuilder(builder);
+            LLVMDisposeModule(mod);
+            return 1;
+        }
+    }
+
+    /* 3. Emit object file */
     int result = emit_object(mod, output_path);
 
-    /* 7. Cleanup */
+    /* 4. Cleanup */
     LLVMDisposeBuilder(builder);
     LLVMDisposeModule(mod);
     return result;

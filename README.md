@@ -41,13 +41,13 @@ cc output.o -o output
 echo $?    # check exit code
 ```
 
-Or use the shortcut:
+Or use the `run` script to compile, link, and run in one shot:
 
 ```bash
-make run FILE=tests/phase2/add.c
+./run input.c
 ```
 
-This builds the compiler (if needed), compiles, links, runs, and prints the exit code.
+Works from any directory. Auto-builds the compiler if needed.
 
 ## Tests
 
@@ -73,6 +73,9 @@ tests/
   run_tests.sh — Test harness
   phase1/      — Integer literals + return
   phase2/      — Expressions + operators
+  phase3/      — Variables + statements
+  phase4/      — Control flow (if/else, while, for)
+  phase5/      — Functions, calls, recursion
 build/
   cc           — Compiler binary (after make)
   *.o          — Object files
@@ -90,3 +93,28 @@ source.c → Lexer → Tokens → Parser → AST → Codegen → LLVM IR → .o 
 - **Parser** turns tokens into an AST (abstract syntax tree)
 - **Codegen** walks the AST, calls LLVM-C API to build IR, emits a `.o` file
 - **System `cc`** links the `.o` with C runtime startup code to produce an executable
+
+## Supported
+
+- `int` type (32-bit signed)
+- Integer literals, arithmetic (`+`, `-`, `*`, `/`, `%`)
+- Comparisons (`<`, `>`, `<=`, `>=`, `==`, `!=`)
+- Logical operators (`&&`, `||`, `!`), bitwise not (`~`)
+- Local variables with assignment and block scoping
+- `if`/`else` (including chained else-if)
+- `while` loops
+- `for` loops (with optional init/cond/post, including `int` declarations in init)
+- Nested blocks and nested control flow
+- Multiple functions with `int` parameters and `int` return
+- Function calls, nested calls, recursion
+- Forward references (call a function defined later)
+- Forward declarations (`int foo(int x);`)
+
+## Not Supported
+
+- Preprocessor (`#include`, `#define`)
+- Pointers, arrays, strings
+- Global variables
+- Multiple types (`char`, `float`, `void`, structs, enums, unions)
+- `switch`, `do-while`, `break`, `continue`, `goto`
+- Type casts, `sizeof`

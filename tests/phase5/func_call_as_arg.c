@@ -1,0 +1,9 @@
+int square(int x) {
+    return x * x;
+}
+int add(int a, int b) {
+    return a + b;
+}
+int main() {
+    return add(square(3), square(4));
+}

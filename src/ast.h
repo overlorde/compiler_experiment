@@ -19,6 +19,11 @@ typedef enum {
     NODE_ASSIGN,
     NODE_BLOCK,
     NODE_EXPR_STMT,
+    NODE_IF,
+    NODE_WHILE,
+    NODE_FOR,
+    NODE_CALL,
+    NODE_PROGRAM,
 } NodeKind;
 
 typedef enum {
@@ -49,7 +54,7 @@ struct ASTNode {
         struct { ASTNode *expr; } ret;
 
         /* NODE_FUNCTION */
-        struct { const char *name; ASTNode *body; } func;
+        struct { const char *name; char **params; int param_count; ASTNode *body; } func;
 
         /* NODE_VAR_DECL — int x (= expr)?; */
         struct { char *name; ASTNode *init; } var_decl;
@@ -65,6 +70,21 @@ struct ASTNode {
 
         /* NODE_EXPR_STMT — expr; */
         struct { ASTNode *expr; } expr_stmt;
+
+        /* NODE_IF — if (cond) then_body else else_body */
+        struct { ASTNode *cond; ASTNode *then_body; ASTNode *else_body; } if_stmt;
+
+        /* NODE_WHILE — while (cond) body */
+        struct { ASTNode *cond; ASTNode *body; } while_stmt;
+
+        /* NODE_FOR — for (init; cond; post) body */
+        struct { ASTNode *init; ASTNode *cond; ASTNode *post; ASTNode *body; } for_stmt;
+
+        /* NODE_CALL — func(args) */
+        struct { char *name; ASTNode **args; int arg_count; } call;
+
+        /* NODE_PROGRAM — top-level list of functions */
+        struct { ASTNode **functions; int count; } program;
     } data;
 };
 
@@ -73,12 +93,17 @@ ASTNode *ast_int_lit(int value);
 ASTNode *ast_binary_op(BinaryOp op, ASTNode *left, ASTNode *right);
 ASTNode *ast_unary_op(UnaryOp op, ASTNode *operand);
 ASTNode *ast_return(ASTNode *expr);
-ASTNode *ast_function(const char *name, ASTNode *body);
+ASTNode *ast_function(const char *name, char **params, int param_count, ASTNode *body);
 ASTNode *ast_var_decl(char *name, ASTNode *init);
 ASTNode *ast_var_ref(char *name);
 ASTNode *ast_assign(char *name, ASTNode *value);
 ASTNode *ast_block(ASTNode **stmts, int count);
 ASTNode *ast_expr_stmt(ASTNode *expr);
+ASTNode *ast_if(ASTNode *cond, ASTNode *then_body, ASTNode *else_body);
+ASTNode *ast_while(ASTNode *cond, ASTNode *body);
+ASTNode *ast_for(ASTNode *init, ASTNode *cond, ASTNode *post, ASTNode *body);
+ASTNode *ast_call(char *name, ASTNode **args, int arg_count);
+ASTNode *ast_program(ASTNode **functions, int count);
 
 /* Debug: print AST to stdout */
 void ast_print(ASTNode *node, int indent);

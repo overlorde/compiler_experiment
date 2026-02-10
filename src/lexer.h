@@ -38,6 +38,10 @@ typedef enum {
     TOK_OR,           /* || */
     TOK_ASSIGN,       /* = */
     TOK_COMMA,        /* , */
+    TOK_KW_IF,        /* "if" */
+    TOK_KW_ELSE,      /* "else" */
+    TOK_KW_WHILE,     /* "while" */
+    TOK_KW_FOR,       /* "for" */
 } TokenKind;
 
 typedef struct {

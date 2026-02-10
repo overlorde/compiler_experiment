@@ -92,6 +92,14 @@ Token lexer_next(Lexer *lexer) {
             tok.kind = TOK_KW_INT;
         else if (tok.length == 6 && strncmp(tok.start, "return", 6) == 0)
             tok.kind = TOK_KW_RETURN;
+        else if (tok.length == 2 && strncmp(tok.start, "if", 2) == 0)
+            tok.kind = TOK_KW_IF;
+        else if (tok.length == 4 && strncmp(tok.start, "else", 4) == 0)
+            tok.kind = TOK_KW_ELSE;
+        else if (tok.length == 5 && strncmp(tok.start, "while", 5) == 0)
+            tok.kind = TOK_KW_WHILE;
+        else if (tok.length == 3 && strncmp(tok.start, "for", 3) == 0)
+            tok.kind = TOK_KW_FOR;
         else
             tok.kind = TOK_IDENT;
         return tok;
@@ -142,6 +150,10 @@ const char *token_kind_name(TokenKind kind) {
         case TOK_AND:       return "&&";
         case TOK_OR:        return "||";
         case TOK_ASSIGN:    return "=";
+        case TOK_KW_IF:     return "if";
+        case TOK_KW_ELSE:   return "else";
+        case TOK_KW_WHILE:  return "while";
+        case TOK_KW_FOR:    return "for";
         default:            return "UNKNOWN";
     }
 }
