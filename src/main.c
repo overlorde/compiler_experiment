@@ -28,13 +28,30 @@ static char *read_file(const char *path) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 3) {
-        fprintf(stderr, "Usage: %s <input.c> <output.o>\n", argv[0]);
+    CodegenOptions opts = {0, 0};
+    int i;
+
+    /* Parse flags */
+    for (i = 1; i < argc; i++) {
+        if (argv[i][0] != '-') break;
+        if (strcmp(argv[i], "-emit-llvm") == 0)
+            opts.emit_llvm = 1;
+        else if (strcmp(argv[i], "-O1") == 0)
+            opts.opt_level = 1;
+        else {
+            fprintf(stderr, "error: unknown flag '%s'\n", argv[i]);
+            return 1;
+        }
+    }
+
+    if (argc - i != 2) {
+        fprintf(stderr, "Usage: %s [flags] <input.c> <output>\n", argv[0]);
+        fprintf(stderr, "Flags: -emit-llvm  -O1\n");
         return 1;
     }
 
-    const char *input_path  = argv[1];
-    const char *output_path = argv[2];
+    const char *input_path  = argv[i];
+    const char *output_path = argv[i + 1];
 
     /* Read source file */
     char *source = read_file(input_path);
@@ -51,7 +68,7 @@ int main(int argc, char **argv) {
     }
 
     /* Codegen */
-    int result = codegen(ast, output_path);
+    int result = codegen(ast, output_path, &opts);
 
     /* Cleanup */
     ast_free(ast);

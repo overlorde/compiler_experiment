@@ -5,6 +5,8 @@
 #include <llvm-c/Core.h>
 #include <llvm-c/Target.h>
 #include <llvm-c/TargetMachine.h>
+#include <llvm-c/Transforms/Scalar.h>
+#include <llvm-c/Transforms/Utils.h>
 
 #include "codegen.h"
 
@@ -339,7 +341,19 @@ static int emit_object(LLVMModuleRef mod, const char *output_path) {
     return 0;
 }
 
-int codegen(ASTNode *ast, const char *output_path) {
+static void run_optimization_passes(LLVMModuleRef mod) {
+    LLVMPassManagerRef pm = LLVMCreatePassManager();
+    LLVMAddPromoteMemoryToRegisterPass(pm);
+    LLVMAddInstructionCombiningPass(pm);
+    LLVMAddReassociatePass(pm);
+    LLVMAddGVNPass(pm);
+    LLVMAddCFGSimplificationPass(pm);
+    LLVMAddAggressiveDCEPass(pm);
+    LLVMRunPassManager(pm, mod);
+    LLVMDisposePassManager(pm);
+}
+
+int codegen(ASTNode *ast, const char *output_path, CodegenOptions *opts) {
     /* 1. Init LLVM */
     LLVMInitializeNativeTarget();
     LLVMInitializeNativeAsmPrinter();
@@ -391,10 +405,24 @@ int codegen(ASTNode *ast, const char *output_path) {
         }
     }
 
-    /* 3. Emit object file */
-    int result = emit_object(mod, output_path);
+    /* 3. Run optimization passes if requested */
+    if (opts && opts->opt_level >= 1)
+        run_optimization_passes(mod);
 
-    /* 4. Cleanup */
+    /* 4. Emit output */
+    int result;
+    if (opts && opts->emit_llvm) {
+        char *error = NULL;
+        result = LLVMPrintModuleToFile(mod, output_path, &error);
+        if (result) {
+            fprintf(stderr, "codegen: %s\n", error);
+            LLVMDisposeMessage(error);
+        }
+    } else {
+        result = emit_object(mod, output_path);
+    }
+
+    /* 5. Cleanup */
     LLVMDisposeBuilder(builder);
     LLVMDisposeModule(mod);
     return result;

@@ -3,23 +3,12 @@
 
 #include "ast.h"
 
-/*
- * Code generation — AST to LLVM IR to object file.
- *
- * Uses the LLVM-C API (llvm-c/Core.h, llvm-c/TargetMachine.h, etc.)
- *
- * Key LLVM-C functions you'll need for Phase 1:
- *   LLVMModuleCreateWithName()
- *   LLVMFunctionType(), LLVMAddFunction()
- *   LLVMAppendBasicBlock()
- *   LLVMCreateBuilder(), LLVMPositionBuilderAtEnd()
- *   LLVMConstInt()
- *   LLVMBuildRet()
- *   LLVMPrintModuleToString()  — for debugging
- *   LLVMWriteBitcodeToFile() or target machine emit
- */
+typedef struct {
+    int emit_llvm;   /* 1 = write .ll text IR, 0 = write .o */
+    int opt_level;   /* 0 = no passes, 1 = basic optimization passes */
+} CodegenOptions;
 
-/* Compile an AST to an object file. Returns 0 on success, non-zero on error. */
-int codegen(ASTNode *ast, const char *output_path);
+/* Compile an AST to an object file or LLVM IR. Returns 0 on success. */
+int codegen(ASTNode *ast, const char *output_path, CodegenOptions *opts);
 
 #endif

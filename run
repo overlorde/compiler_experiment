@@ -5,7 +5,8 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 CC="$DIR/build/cc"
 
 if [[ $# -lt 1 ]]; then
-    echo "usage: run <file.c>" >&2
+    echo "usage: run [flags] <file.c>" >&2
+    echo "flags: -emit-llvm  -O1" >&2
     exit 1
 fi
 
@@ -14,10 +15,29 @@ if [[ ! -x "$CC" ]]; then
     make -C "$DIR" -j$(nproc) >&2
 fi
 
-tmp_o=$(mktemp /tmp/cc_XXXXXX.o)
-tmp_exe=$(mktemp /tmp/cc_XXXXXX)
-trap 'rm -f "$tmp_o" "$tmp_exe"' EXIT
+# Separate flags from the source file (last argument)
+FLAGS=()
+EMIT_LLVM=0
+while [[ $# -gt 1 ]]; do
+    case "$1" in
+        -emit-llvm) EMIT_LLVM=1; FLAGS+=("$1") ;;
+        -O1)        FLAGS+=("$1") ;;
+        *)          echo "error: unknown flag '$1'" >&2; exit 1 ;;
+    esac
+    shift
+done
+SOURCE="$1"
 
-"$CC" "$1" "$tmp_o"
-cc "$tmp_o" -o "$tmp_exe"
-"$tmp_exe"
+if [[ $EMIT_LLVM -eq 1 ]]; then
+    tmp_ll=$(mktemp /tmp/cc_XXXXXX.ll)
+    trap 'rm -f "$tmp_ll"' EXIT
+    "$CC" "${FLAGS[@]}" "$SOURCE" "$tmp_ll"
+    cat "$tmp_ll"
+else
+    tmp_o=$(mktemp /tmp/cc_XXXXXX.o)
+    tmp_exe=$(mktemp /tmp/cc_XXXXXX)
+    trap 'rm -f "$tmp_o" "$tmp_exe"' EXIT
+    "$CC" "${FLAGS[@]}" "$SOURCE" "$tmp_o"
+    cc "$tmp_o" -o "$tmp_exe"
+    "$tmp_exe"
+fi
