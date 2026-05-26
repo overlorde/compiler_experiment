@@ -4,7 +4,7 @@
 #include "ast.h"
 
 ASTNode *ast_int_lit(int value) {
-    ASTNode *node = malloc(sizeof(ASTNode));
+    ASTNode *node = calloc(1, sizeof(ASTNode));
     if (!node) return NULL;
     node->kind = NODE_INT_LIT;
     node->data.int_lit.value = value;
@@ -12,36 +12,39 @@ ASTNode *ast_int_lit(int value) {
 }
 
 ASTNode *ast_binary_op(BinaryOp op, ASTNode *left, ASTNode *right) {
-    ASTNode *node = malloc(sizeof(ASTNode));
+    ASTNode *node = calloc(1, sizeof(ASTNode));
     if (!node) return NULL;
     node->kind = NODE_BINARY_OP;
     node->data.bin.op = op;
     node->data.bin.left = left;
     node->data.bin.right = right;
+    node->line = left ? left->line : 0;   /* inherit the leftmost operand's line */
     return node;
 }
 
 ASTNode *ast_unary_op(UnaryOp op, ASTNode *operand) {
-    ASTNode *node = malloc(sizeof(ASTNode));
+    ASTNode *node = calloc(1, sizeof(ASTNode));
     if (!node) return NULL;
     node->kind = NODE_UNARY_OP;
     node->data.unary.op = op;
     node->data.unary.operand = operand;
+    node->line = operand ? operand->line : 0;
     return node;
 }
 
 ASTNode *ast_return(ASTNode *expr) {
-    ASTNode *node = malloc(sizeof(ASTNode));
+    ASTNode *node = calloc(1, sizeof(ASTNode));
     if (!node) return NULL;
     node->kind = NODE_RETURN;
     node->data.ret.expr = expr;
     return node;
 }
 
-ASTNode *ast_function(const char *name, char **params, int param_count, ASTNode *body) {
-    ASTNode *node = malloc(sizeof(ASTNode));
+ASTNode *ast_function(Type *ret_type, const char *name, Param *params, int param_count, ASTNode *body) {
+    ASTNode *node = calloc(1, sizeof(ASTNode));
     if (!node) return NULL;
     node->kind = NODE_FUNCTION;
+    node->data.func.ret_type = ret_type;
     node->data.func.name = name;
     node->data.func.params = params;
     node->data.func.param_count = param_count;
@@ -49,17 +52,18 @@ ASTNode *ast_function(const char *name, char **params, int param_count, ASTNode 
     return node;
 }
 
-ASTNode *ast_var_decl(char *name, ASTNode *init) {
-    ASTNode *node = malloc(sizeof(ASTNode));
+ASTNode *ast_var_decl(Type *type, char *name, ASTNode *init) {
+    ASTNode *node = calloc(1, sizeof(ASTNode));
     if (!node) return NULL;
     node->kind = NODE_VAR_DECL;
+    node->data.var_decl.type = type;
     node->data.var_decl.name = name;
     node->data.var_decl.init = init;
     return node;
 }
 
 ASTNode *ast_var_ref(char *name) {
-    ASTNode *node = malloc(sizeof(ASTNode));
+    ASTNode *node = calloc(1, sizeof(ASTNode));
     if (!node) return NULL;
     node->kind = NODE_VAR_REF;
     node->data.var_ref.name = name;
@@ -67,7 +71,7 @@ ASTNode *ast_var_ref(char *name) {
 }
 
 ASTNode *ast_assign(char *name, ASTNode *value) {
-    ASTNode *node = malloc(sizeof(ASTNode));
+    ASTNode *node = calloc(1, sizeof(ASTNode));
     if (!node) return NULL;
     node->kind = NODE_ASSIGN;
     node->data.assign.name = name;
@@ -76,7 +80,7 @@ ASTNode *ast_assign(char *name, ASTNode *value) {
 }
 
 ASTNode *ast_block(ASTNode **stmts, int count) {
-    ASTNode *node = malloc(sizeof(ASTNode));
+    ASTNode *node = calloc(1, sizeof(ASTNode));
     if (!node) return NULL;
     node->kind = NODE_BLOCK;
     node->data.block.stmts = stmts;
@@ -85,7 +89,7 @@ ASTNode *ast_block(ASTNode **stmts, int count) {
 }
 
 ASTNode *ast_expr_stmt(ASTNode *expr) {
-    ASTNode *node = malloc(sizeof(ASTNode));
+    ASTNode *node = calloc(1, sizeof(ASTNode));
     if (!node) return NULL;
     node->kind = NODE_EXPR_STMT;
     node->data.expr_stmt.expr = expr;
@@ -93,7 +97,7 @@ ASTNode *ast_expr_stmt(ASTNode *expr) {
 }
 
 ASTNode *ast_call(char *name, ASTNode **args, int arg_count) {
-    ASTNode *node = malloc(sizeof(ASTNode));
+    ASTNode *node = calloc(1, sizeof(ASTNode));
     if (!node) return NULL;
     node->kind = NODE_CALL;
     node->data.call.name = name;
@@ -103,7 +107,7 @@ ASTNode *ast_call(char *name, ASTNode **args, int arg_count) {
 }
 
 ASTNode *ast_program(ASTNode **functions, int count) {
-    ASTNode *node = malloc(sizeof(ASTNode));
+    ASTNode *node = calloc(1, sizeof(ASTNode));
     if (!node) return NULL;
     node->kind = NODE_PROGRAM;
     node->data.program.functions = functions;
@@ -112,7 +116,7 @@ ASTNode *ast_program(ASTNode **functions, int count) {
 }
 
 ASTNode *ast_if(ASTNode *cond, ASTNode *then_body, ASTNode *else_body) {
-    ASTNode *node = malloc(sizeof(ASTNode));
+    ASTNode *node = calloc(1, sizeof(ASTNode));
     if (!node) return NULL;
     node->kind = NODE_IF;
     node->data.if_stmt.cond = cond;
@@ -122,7 +126,7 @@ ASTNode *ast_if(ASTNode *cond, ASTNode *then_body, ASTNode *else_body) {
 }
 
 ASTNode *ast_while(ASTNode *cond, ASTNode *body) {
-    ASTNode *node = malloc(sizeof(ASTNode));
+    ASTNode *node = calloc(1, sizeof(ASTNode));
     if (!node) return NULL;
     node->kind = NODE_WHILE;
     node->data.while_stmt.cond = cond;
@@ -131,7 +135,7 @@ ASTNode *ast_while(ASTNode *cond, ASTNode *body) {
 }
 
 ASTNode *ast_for(ASTNode *init, ASTNode *cond, ASTNode *post, ASTNode *body) {
-    ASTNode *node = malloc(sizeof(ASTNode));
+    ASTNode *node = calloc(1, sizeof(ASTNode));
     if (!node) return NULL;
     node->kind = NODE_FOR;
     node->data.for_stmt.init = init;
@@ -173,7 +177,13 @@ void ast_print(ASTNode *node, int indent) {
             ast_print(node->data.ret.expr, indent + 1);
             break;
         case NODE_FUNCTION:
-            printf("Function(%s, %d params)\n", node->data.func.name, node->data.func.param_count);
+            printf("Function(%s %s,", type_name(node->data.func.ret_type),
+                   node->data.func.name);
+            for (int i = 0; i < node->data.func.param_count; i++)
+                printf("%s %s %s", i ? "," : "",
+                       type_name(node->data.func.params[i].type),
+                       node->data.func.params[i].name);
+            printf(")\n");
             ast_print(node->data.func.body, indent + 1);
             break;
         case NODE_CALL:
@@ -187,7 +197,8 @@ void ast_print(ASTNode *node, int indent) {
                 ast_print(node->data.program.functions[i], indent + 1);
             break;
         case NODE_VAR_DECL:
-            printf("VarDecl(%s)\n", node->data.var_decl.name);
+            printf("VarDecl(%s %s)\n", type_name(node->data.var_decl.type),
+                   node->data.var_decl.name);
             if (node->data.var_decl.init)
                 ast_print(node->data.var_decl.init, indent + 1);
             break;
@@ -251,7 +262,7 @@ void ast_free(ASTNode *node) {
         case NODE_FUNCTION:
             free((char *)node->data.func.name);
             for (int i = 0; i < node->data.func.param_count; i++)
-                free(node->data.func.params[i]);
+                free(node->data.func.params[i].name);   /* .type is a shared singleton — don't free */
             free(node->data.func.params);
             ast_free(node->data.func.body);
             break;

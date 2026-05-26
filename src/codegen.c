@@ -5,8 +5,8 @@
 #include <llvm-c/Core.h>
 #include <llvm-c/Target.h>
 #include <llvm-c/TargetMachine.h>
-#include <llvm-c/Transforms/Scalar.h>
-#include <llvm-c/Transforms/Utils.h>
+#include <llvm-c/Error.h>
+#include <llvm-c/Transforms/PassBuilder.h>
 
 #include "codegen.h"
 
@@ -342,15 +342,19 @@ static int emit_object(LLVMModuleRef mod, const char *output_path) {
 }
 
 static void run_optimization_passes(LLVMModuleRef mod) {
-    LLVMPassManagerRef pm = LLVMCreatePassManager();
-    LLVMAddPromoteMemoryToRegisterPass(pm);
-    LLVMAddInstructionCombiningPass(pm);
-    LLVMAddReassociatePass(pm);
-    LLVMAddGVNPass(pm);
-    LLVMAddCFGSimplificationPass(pm);
-    LLVMAddAggressiveDCEPass(pm);
-    LLVMRunPassManager(pm, mod);
-    LLVMDisposePassManager(pm);
+    /* New pass manager: LLVM 17+ removed the legacy LLVMAdd*Pass C API.
+       Same six passes, run per-function via the "function(...)" adaptor. */
+    LLVMPassBuilderOptionsRef opts = LLVMCreatePassBuilderOptions();
+    LLVMErrorRef err = LLVMRunPasses(
+        mod,
+        "function(mem2reg,instcombine,reassociate,gvn,simplifycfg,adce)",
+        NULL, opts);
+    if (err) {
+        char *msg = LLVMGetErrorMessage(err);   /* consumes the error */
+        fprintf(stderr, "codegen: optimization failed: %s\n", msg);
+        LLVMDisposeErrorMessage(msg);
+    }
+    LLVMDisposePassBuilderOptions(opts);
 }
 
 int codegen(ASTNode *ast, const char *output_path, CodegenOptions *opts) {
@@ -393,9 +397,9 @@ int codegen(ASTNode *ast, const char *output_path, CodegenOptions *opts) {
         for (int j = 0; j < fn->data.func.param_count; j++) {
             LLVMValueRef param = LLVMGetParam(func, j);
             LLVMValueRef alloca = LLVMBuildAlloca(builder, LLVMInt32Type(),
-                                                   fn->data.func.params[j]);
+                                                   fn->data.func.params[j].name);
             LLVMBuildStore(builder, param, alloca);
-            symtab_add(&st, fn->data.func.params[j], alloca);
+            symtab_add(&st, fn->data.func.params[j].name, alloca);
         }
 
         if (codegen_stmt(builder, &st, fn->data.func.body)) {

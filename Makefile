@@ -1,6 +1,6 @@
 CC       := gcc
-CFLAGS   := -Wall -Wextra -g $(shell llvm-config-14 --cflags)
-LDFLAGS  := $(shell llvm-config-14 --ldflags --libs core) $(shell llvm-config-14 --system-libs)
+CFLAGS   := -Wall -Wextra -g $(shell llvm-config-18 --cflags)
+LDFLAGS  := $(shell llvm-config-18 --ldflags --libs core) $(shell llvm-config-18 --system-libs)
 
 SRC_DIR  := src
 BUILD_DIR := build

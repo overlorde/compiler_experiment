@@ -26,12 +26,41 @@ static int expect(Parser *p, TokenKind kind) {
     return 1;
 }
 
+/* Stamp a freshly built node with the source line we captured before parsing it.
+   NULL-safe (parse failures), so it can wrap a constructor call directly. */
+static ASTNode *tag(ASTNode *node, int line) {
+    if (node) node->line = line;
+    return node;
+}
+
+/* Is the current token the start of a type? (int | bool) */
+static int check_type_start(Parser *p) {
+    return check(p, TOK_KW_INT) || check(p, TOK_KW_BOOL);
+}
+
+/* type → "int" | "bool". Consumes the keyword and returns the singleton Type;
+   reports an error and returns NULL on anything else. */
+static Type *parse_type(Parser *p) {
+    if (check(p, TOK_KW_INT))  { advance(p); return type_int();  }
+    if (check(p, TOK_KW_BOOL)) { advance(p); return type_bool(); }
+    fprintf(stderr, "error: line %d: expected type, got '%s'\n",
+            p->current.line, token_kind_name(p->current.kind));
+    return NULL;
+}
+
 /* --- Grammar rules (expressions) --- */
 
 static ASTNode *parse_expression(Parser *p);
 
 /* primary → INT_LIT | IDENT | "(" expression ")" */
+static ASTNode *parse_primary_inner(Parser *p);
+
 static ASTNode *parse_primary(Parser *p) {
+    int line = p->current.line;   /* first token of this primary */
+    return tag(parse_primary_inner(p), line);
+}
+
+static ASTNode *parse_primary_inner(Parser *p) {
     if (check(p, TOK_INT_LIT)) {
         int value = p->current.data.int_value;
         advance(p);
@@ -218,7 +247,14 @@ static ASTNode *parse_block(Parser *p);
  *           | "{" statement* "}"
  *           | expr ";"
  */
+static ASTNode *parse_statement_inner(Parser *p);
+
 static ASTNode *parse_statement(Parser *p) {
+    int line = p->current.line;   /* first token of this statement */
+    return tag(parse_statement_inner(p), line);
+}
+
+static ASTNode *parse_statement_inner(Parser *p) {
     /* return expr; */
     if (check(p, TOK_KW_RETURN)) {
         advance(p);
@@ -228,11 +264,12 @@ static ASTNode *parse_statement(Parser *p) {
         return ast_return(expr);
     }
 
-    /* int IDENT (= expr)?; */
-    if (check(p, TOK_KW_INT)) {
-        advance(p);
+    /* (int|bool) IDENT (= expr)?; */
+    if (check_type_start(p)) {
+        Type *ty = parse_type(p);
+        if (!ty) return NULL;
         if (!check(p, TOK_IDENT)) {
-            fprintf(stderr, "error: line %d: expected variable name after 'int'\n",
+            fprintf(stderr, "error: line %d: expected variable name after type\n",
                     p->current.line);
             return NULL;
         }
@@ -252,7 +289,7 @@ static ASTNode *parse_statement(Parser *p) {
             ast_free(init);
             return NULL;
         }
-        return ast_var_decl(name, init);
+        return ast_var_decl(ty, name, init);
     }
 
     /* if (expr) statement (else statement)? */
@@ -290,12 +327,13 @@ static ASTNode *parse_statement(Parser *p) {
         advance(p);
         if (!expect(p, TOK_LPAREN)) return NULL;
 
-        /* init: "int" IDENT "=" expr | expr | empty */
+        /* init: (int|bool) IDENT "=" expr | expr | empty */
         ASTNode *init = NULL;
-        if (check(p, TOK_KW_INT)) {
-            advance(p);
+        if (check_type_start(p)) {
+            Type *ty = parse_type(p);
+            if (!ty) return NULL;
             if (!check(p, TOK_IDENT)) {
-                fprintf(stderr, "error: line %d: expected variable name after 'int'\n",
+                fprintf(stderr, "error: line %d: expected variable name after type\n",
                         p->current.line);
                 return NULL;
             }
@@ -306,7 +344,7 @@ static ASTNode *parse_statement(Parser *p) {
             if (!expect(p, TOK_ASSIGN)) { free(name); return NULL; }
             ASTNode *val = parse_expression(p);
             if (!val) { free(name); return NULL; }
-            init = ast_var_decl(name, val);
+            init = ast_var_decl(ty, name, val);
         } else if (!check(p, TOK_SEMICOLON)) {
             init = parse_expression(p);
             if (!init) return NULL;
@@ -421,7 +459,8 @@ static ASTNode *parse_block(Parser *p) {
  * A function with just a declaration (no body) is treated as a forward decl and skipped.
  */
 static ASTNode *parse_function(Parser *p) {
-    if (!expect(p, TOK_KW_INT)) return NULL;
+    Type *ret_type = parse_type(p);
+    if (!ret_type) return NULL;
 
     if (!check(p, TOK_IDENT)) {
         fprintf(stderr, "error: line %d: expected function name, got '%s'\n",
@@ -435,13 +474,14 @@ static ASTNode *parse_function(Parser *p) {
 
     if (!expect(p, TOK_LPAREN)) { free(func_name); return NULL; }
 
-    /* parse parameter list */
+    /* parse parameter list:  (int|bool) IDENT ("," (int|bool) IDENT)* */
     int param_cap = 4;
     int param_count = 0;
-    char **params = malloc(param_cap * sizeof(char *));
+    Param *params = malloc(param_cap * sizeof(Param));
 
-    if (check(p, TOK_KW_INT)) {
-        advance(p);
+    if (check_type_start(p)) {
+        Type *pty = parse_type(p);
+        if (!pty) { free(func_name); free(params); return NULL; }
         if (!check(p, TOK_IDENT)) {
             fprintf(stderr, "error: line %d: expected parameter name\n", p->current.line);
             free(func_name); free(params); return NULL;
@@ -450,24 +490,25 @@ static ASTNode *parse_function(Parser *p) {
         memcpy(pname, p->current.start, p->current.length);
         pname[p->current.length] = '\0';
         advance(p);
-        params[param_count++] = pname;
+        params[param_count++] = (Param){ .name = pname, .type = pty };
 
         while (check(p, TOK_COMMA)) {
             advance(p);
-            if (!expect(p, TOK_KW_INT)) { free(func_name); free(params); return NULL; }
+            Type *ty = parse_type(p);
+            if (!ty) { free(func_name); free(params); return NULL; }
             if (!check(p, TOK_IDENT)) {
                 fprintf(stderr, "error: line %d: expected parameter name\n", p->current.line);
                 free(func_name); free(params); return NULL;
             }
             if (param_count >= param_cap) {
                 param_cap *= 2;
-                params = realloc(params, param_cap * sizeof(char *));
+                params = realloc(params, param_cap * sizeof(Param));
             }
             pname = malloc(p->current.length + 1);
             memcpy(pname, p->current.start, p->current.length);
             pname[p->current.length] = '\0';
             advance(p);
-            params[param_count++] = pname;
+            params[param_count++] = (Param){ .name = pname, .type = ty };
         }
     }
 
@@ -476,7 +517,7 @@ static ASTNode *parse_function(Parser *p) {
     /* forward declaration: "int foo(int x);" — skip it */
     if (check(p, TOK_SEMICOLON)) {
         advance(p);
-        for (int i = 0; i < param_count; i++) free(params[i]);
+        for (int i = 0; i < param_count; i++) free(params[i].name);
         free(params);
         free(func_name);
         return NULL; /* signal: no node produced */
@@ -485,7 +526,7 @@ static ASTNode *parse_function(Parser *p) {
     ASTNode *body = parse_block(p);
     if (!body) { free(func_name); free(params); return NULL; }
 
-    return ast_function(func_name, params, param_count, body);
+    return ast_function(ret_type, func_name, params, param_count, body);
 }
 
 void parser_init(Parser *parser, const char *source) {

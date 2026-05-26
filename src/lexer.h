@@ -14,6 +14,7 @@ typedef enum {
     TOK_EOF,
     TOK_INT_LIT,       /* e.g. 42 */
     TOK_KW_INT,        /* "int" */
+    TOK_KW_BOOL,       /* "bool" */
     TOK_KW_RETURN,     /* "return" */
     TOK_IDENT,         /* identifiers */
     TOK_LPAREN,        /* ( */

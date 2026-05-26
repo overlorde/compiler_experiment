@@ -1,6 +1,8 @@
 #ifndef AST_H
 #define AST_H
 
+#include "types.h"
+
 /*
  * AST node definitions — tagged union style.
  *
@@ -36,10 +38,14 @@ typedef enum {
     OP_NEG, OP_NOT, OP_BITNOT,
 } UnaryOp;
 
+/* A function parameter: its name and declared type. */
+typedef struct { char *name; Type *type; } Param;
+
 typedef struct ASTNode ASTNode;
 
 struct ASTNode {
     NodeKind kind;
+    int line;            /* 1-based source line; 0 if unknown */
     union {
         /* NODE_INT_LIT */
         struct { int value; } int_lit;
@@ -54,10 +60,10 @@ struct ASTNode {
         struct { ASTNode *expr; } ret;
 
         /* NODE_FUNCTION */
-        struct { const char *name; char **params; int param_count; ASTNode *body; } func;
+        struct { Type *ret_type; const char *name; Param *params; int param_count; ASTNode *body; } func;
 
         /* NODE_VAR_DECL — int x (= expr)?; */
-        struct { char *name; ASTNode *init; } var_decl;
+        struct { Type *type; char *name; ASTNode *init; } var_decl;
 
         /* NODE_VAR_REF — x */
         struct { char *name; } var_ref;
@@ -93,8 +99,8 @@ ASTNode *ast_int_lit(int value);
 ASTNode *ast_binary_op(BinaryOp op, ASTNode *left, ASTNode *right);
 ASTNode *ast_unary_op(UnaryOp op, ASTNode *operand);
 ASTNode *ast_return(ASTNode *expr);
-ASTNode *ast_function(const char *name, char **params, int param_count, ASTNode *body);
-ASTNode *ast_var_decl(char *name, ASTNode *init);
+ASTNode *ast_function(Type *ret_type, const char *name, Param *params, int param_count, ASTNode *body);
+ASTNode *ast_var_decl(Type *type, char *name, ASTNode *init);
 ASTNode *ast_var_ref(char *name);
 ASTNode *ast_assign(char *name, ASTNode *value);
 ASTNode *ast_block(ASTNode **stmts, int count);
