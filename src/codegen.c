@@ -48,6 +48,7 @@ static LLVMModuleRef g_module;
 
 /* Walk the AST and produce an LLVM value */
 static LLVMValueRef codegen_expr(LLVMBuilderRef builder, SymbolTable *st, ASTNode *node) {
+
     switch (node->kind) {
         case NODE_INT_LIT:
             return LLVMConstInt(LLVMInt32Type(), node->data.int_lit.value, 0);
@@ -431,3 +432,4 @@ int codegen(ASTNode *ast, const char *output_path, CodegenOptions *opts) {
     LLVMDisposeModule(mod);
     return result;
 }
+

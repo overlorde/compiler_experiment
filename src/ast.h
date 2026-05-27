@@ -3,6 +3,12 @@
 
 #include "types.h"
 
+/* The type checker hangs a scope (symbol table) off function and block nodes so
+ * it can find "the environment for this node" in O(1) when it walks the tree a
+ * second time. We only ever store/return the pointer, never dereference it here,
+ * so a tag forward-declaration is enough — ast.h stays independent of symtab.h. */
+struct SymTab;
+
 /*
  * AST node definitions — tagged union style.
  *
@@ -60,7 +66,7 @@ struct ASTNode {
         struct { ASTNode *expr; } ret;
 
         /* NODE_FUNCTION */
-        struct { Type *ret_type; const char *name; Param *params; int param_count; ASTNode *body; } func;
+        struct { Type *ret_type; const char *name; Param *params; int param_count; ASTNode *body; struct SymTab *scope; } func;
 
         /* NODE_VAR_DECL — int x (= expr)?; */
         struct { Type *type; char *name; ASTNode *init; } var_decl;
@@ -72,7 +78,7 @@ struct ASTNode {
         struct { char *name; ASTNode *value; } assign;
 
         /* NODE_BLOCK — { stmt* } */
-        struct { ASTNode **stmts; int count; } block;
+        struct { ASTNode **stmts; int count; struct SymTab *scope; } block;
 
         /* NODE_EXPR_STMT — expr; */
         struct { ASTNode *expr; } expr_stmt;
