@@ -204,6 +204,10 @@ int main(int argc, char **argv) {
     symtab_add(&type_env, "int",  type_int());
     symtab_add(&type_env, "bool", type_bool());
 
+    /* Seed func_env with built-in externs (print_int, print_bool). Their bodies
+     * live in runtime/runtime.c and are resolved at link time. */
+    typecheck_register_builtins(&func_env);
+
     build(ast, &var_env, NULL);
 
     /* Inspect what build produced. dump_scopes walks the scope TREE top-down (one

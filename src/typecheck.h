@@ -23,4 +23,10 @@ int typecheck(ASTNode *program,
               SymTab *var_env,    /* root variable scope; per-function/block scopes chain off it */
               SymTab *op_env);    /* operator overloads (unused for now) */
 
+/* Seed func_env with built-in (extern) function signatures: print_int,
+ * print_bool. The synthetic ASTNodes have body == NULL; their bodies live
+ * in runtime/runtime.c and are resolved at link time. Call this once,
+ * before typecheck, alongside the type_env seeding in main. */
+void typecheck_register_builtins(SymTab *func_env);
+
 #endif

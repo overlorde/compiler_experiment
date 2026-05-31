@@ -371,7 +371,19 @@ int codegen(ASTNode *ast, const char *output_path, CodegenOptions *opts) {
     int func_count = ast->data.program.count;
     ASTNode **functions = ast->data.program.functions;
 
-    /* Pass 1: declare all functions */
+    /* Pass 1a: declare built-in externs (print_int, print_bool).
+     * Bodies live in runtime/runtime.c, resolved at link time. Mirrors the
+     * func_env seeding done in main before the AST walk -- there it's for the
+     * type checker, here it's so codegen_expr's NODE_CALL can find @print_int
+     * via LLVMGetNamedFunction. bool lowers to i32, so both share i32(i32). */
+    {
+        LLVMTypeRef i32 = LLVMInt32Type();
+        LLVMTypeRef i32_to_i32 = LLVMFunctionType(i32, &i32, 1, /*isVarArg=*/0);
+        LLVMAddFunction(mod, "print_int",  i32_to_i32);
+        LLVMAddFunction(mod, "print_bool", i32_to_i32);
+    }
+
+    /* Pass 1b: declare every user function from the parsed AST. */
     for (int i = 0; i < func_count; i++) {
         ASTNode *fn = functions[i];
         int nparams = fn->data.func.param_count;
