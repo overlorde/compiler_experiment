@@ -15,6 +15,7 @@
 typedef enum {
     TYPE_INT,
     TYPE_BOOL,
+    TYPE_NUMBER,
     /* grow here: TYPE_FUN, user-defined types, ... */
 } TypeKind;
 
@@ -26,10 +27,14 @@ typedef struct Type {
 /* Singletons for the primitive types. */
 Type *type_int(void);
 Type *type_bool(void);
+Type *type_number(void);
 
 /* Type equality. For primitives this is just a kind match; it will recurse
    once structured types exist. */
 int type_equals(const Type *a, const Type *b);
+
+/*subtyping*/
+int  type_subtype(const  Type *a, const Type *b);
 
 /* Human-readable name, for error messages ("int", "bool"). */
 const char *type_name(const Type *t);
@@ -44,3 +49,4 @@ typedef struct {
 } Binding;
 
 #endif
+

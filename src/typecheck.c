@@ -25,7 +25,7 @@ static void  check_stmt(SymTab *scope, ASTNode *s, Type *ret_type);
 /* Premise check: require `actual` to equal `expected`. A NULL `actual` means
  * a prior error already fired, so stay quiet. */
 static void expect(Type *actual, Type *expected, int line, const char *what) {
-    if (actual && !type_equals(actual, expected))
+    if (actual && !type_subtype(actual, expected))
         error_at(line, "%s: expected %s, got %s",
                  what, type_name(expected), type_name(actual));
 }

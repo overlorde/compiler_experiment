@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "parser.h"
+#include "lexer.h"
 
 /* --- Helper functions --- */
 
@@ -35,7 +36,7 @@ static ASTNode *tag(ASTNode *node, int line) {
 
 /* Is the current token the start of a type? (int | bool) */
 static int check_type_start(Parser *p) {
-    return check(p, TOK_KW_INT) || check(p, TOK_KW_BOOL);
+    return check(p, TOK_KW_INT) || check(p, TOK_KW_BOOL) || check(p, TOK_KW_NUMBER);
 }
 
 /* type → "int" | "bool". Consumes the keyword and returns the singleton Type;
@@ -43,6 +44,7 @@ static int check_type_start(Parser *p) {
 static Type *parse_type(Parser *p) {
     if (check(p, TOK_KW_INT))  { advance(p); return type_int();  }
     if (check(p, TOK_KW_BOOL)) { advance(p); return type_bool(); }
+    if (check(p, TOK_KW_NUMBER)) { advance(p); return type_number(); }
     fprintf(stderr, "error: line %d: expected type, got '%s'\n",
             p->current.line, token_kind_name(p->current.kind));
     return NULL;
@@ -552,3 +554,4 @@ ASTNode *parser_parse(Parser *parser) {
 
     return ast_program(functions, count);
 }
+

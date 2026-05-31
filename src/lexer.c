@@ -92,6 +92,8 @@ Token lexer_next(Lexer *lexer) {
             tok.kind = TOK_KW_INT;
         else if (tok.length == 4 && strncmp(tok.start, "bool", 4) == 0)
             tok.kind = TOK_KW_BOOL;
+        else if (tok.length == 6 && strncmp(tok.start, "number", 6) == 0)
+            tok.kind = TOK_KW_NUMBER;
         else if (tok.length == 6 && strncmp(tok.start, "return", 6) == 0)
             tok.kind = TOK_KW_RETURN;
         else if (tok.length == 2 && strncmp(tok.start, "if", 2) == 0)
@@ -129,6 +131,7 @@ const char *token_kind_name(TokenKind kind) {
         case TOK_INT_LIT:   return "INT_LIT";
         case TOK_KW_INT:    return "int";
         case TOK_KW_BOOL:   return "bool";
+        case TOK_KW_NUMBER: return "number";
         case TOK_KW_RETURN: return "return";
         case TOK_IDENT:     return "IDENT";
         case TOK_LPAREN:    return "(";
