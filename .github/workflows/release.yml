@@ -1,0 +1,44 @@
+name: Release playground
+
+on:
+  push:
+    tags: ["playground-v*"]
+
+permissions:
+  contents: write   # gh release create
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # llvm-18-dev for the native build (codegen links libLLVM);
+      # unsuffixed llvm/clang for the harness's llvm-as + clang++ calls.
+      - name: Install LLVM toolchain
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q llvm-18-dev llvm clang
+
+      # The full suite, including the differential printer-vs-LLVM checks.
+      # No green, no release.
+      - name: Build and test
+        run: make && make test
+
+      - name: Install Emscripten
+        run: |
+          git clone -q --depth 1 https://github.com/emscripten-core/emsdk.git ../emsdk
+          ../emsdk/emsdk install latest
+          ../emsdk/emsdk activate latest
+
+      - name: Build wasm
+        run: source ../emsdk/emsdk_env.sh && make wasm
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            build/compiler.js build/compiler.wasm \
+            --title "$GITHUB_REF_NAME" \
+            --notes "ce_compile wasm build from ${GITHUB_SHA::7}. Suite green (incl. differential IR checks)."
