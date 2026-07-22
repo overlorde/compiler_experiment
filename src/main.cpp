@@ -13,6 +13,7 @@
 #include "env_print.h"
 #include "error.h"
 #include "irprint.h"
+#include "scopes.h"
 
 
 static char *read_file(const char *path) {
@@ -34,80 +35,6 @@ static char *read_file(const char *path) {
     buf[len] = '\0';
     fclose(f);
     return buf;
-}
-
-
-/* `pending` carries a function's scope down to its body block: non-NULL means
- * "the next block you hit IS this function's body -- put its locals here instead
- * of opening a new scope". It's consumed once (cleared to NULL for deeper calls),
- * so only the function body reuses it; every other block is genuinely nested. */
-static void build(ASTNode *n, SymTab *env, SymTab *pending){
-
-    if(!n ){
-        return;
-    }
-    assert(env);   /* even at the root we pass &var_env -- a NULL would be a bug */
-
-    switch (n->kind) {
-        case NODE_PROGRAM:
-            for(int i=0; i< n->data.program.count; i++){
-                assert(n->data.program.functions[i]);
-                build(n->data.program.functions[i], env, NULL);
-            }
-            break;
-        case  NODE_FUNCTION: {
-            assert(n->data.func.name);
-            assert(n->data.func.ret_type);
-            SymTab *fscope = (SymTab *)malloc(sizeof *fscope);   /* this function's own scope  */
-            assert(fscope);
-            symtab_init(fscope, env);                  /* parent = enclosing scope   */
-            for (int i = 0; i < n->data.func.param_count; i++ ){
-                assert(n->data.func.params[i].name);
-                assert(n->data.func.params[i].type);
-                symtab_add(fscope, n->data.func.params[i].name, n->data.func.params[i].type);
-            }
-            n->data.func.scope = fscope;               /* dump_scopes reads this back later */
-            build(n->data.func.body, env, fscope);     /* hand the body my scope as `pending` */
-            break;
-        }
-        case NODE_VAR_DECL:
-            assert(n->data.var_decl.name);
-            assert(n->data.var_decl.type);
-            symtab_add(env, n->data.var_decl.name, n->data.var_decl.type);
-            break;
-
-        case NODE_BLOCK:{
-            SymTab *scope;
-            if (pending) {
-                scope = pending;                       /* this block IS the function body */
-            } else {
-                scope = (SymTab *)malloc(sizeof *scope);         /* a genuine nested { } block */
-                assert(scope);
-                symtab_init(scope, env);               /* parent = enclosing scope */
-            }
-            n->data.block.scope = scope;               /* dump_scopes reads this back later */
-            for (int i = 0; i < n->data.block.count; i++) {
-                build(n->data.block.stmts[i], scope, NULL);  /* deeper blocks are not bodies */
-            }
-            break;
-        }
-        case NODE_IF:
-            build(n->data.if_stmt.then_body, env, NULL);
-            build(n->data.if_stmt.else_body, env, NULL);
-            break;
-
-        case NODE_WHILE:
-            build(n->data.while_stmt.body, env, NULL);
-            break;
-
-        case NODE_FOR:
-            build(n->data.for_stmt.init, env, NULL);
-            build(n->data.for_stmt.body, env, NULL);
-        break;
-
-        default:
-            break;
-        }
 }
 
 
@@ -233,7 +160,7 @@ int main(int argc, char **argv) {
      * live in runtime/runtime.c and are resolved at link time. */
     typecheck_register_builtins(&func_env);
 
-    build(ast, &var_env, NULL);
+    scopes_build(ast, &var_env, NULL);
 
     /* Inspect what build produced. dump_scopes walks the scope TREE top-down (one
        line per scope, indented by depth); the two env_dumps below show the two
