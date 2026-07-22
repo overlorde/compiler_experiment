@@ -82,6 +82,35 @@ run_pass() {
         failed=1
     fi
 
+    # ---- differential: the textual IR printer against the LLVM backend ----
+    # Same source through -emit-ir: llvm-as must accept the IR, and compiling
+    # and running it must produce the same stdout/exit as the object path.
+    local ll ir_exe ir_out
+    ll=$(mktemp /tmp/cc_test_XXXXXX.ll)
+    ir_exe=$(mktemp /tmp/cc_test_XXXXXX)
+    ir_out=$(mktemp /tmp/cc_test_XXXXXX.out)
+
+    if ! "$COMPILER" -q -emit-ir "$src" "$ll" >/dev/null 2>&1; then
+        echo "FAIL  $name (-emit-ir failed)"
+        failed=1
+    elif ! llvm-as "$ll" -o /dev/null 2>/dev/null; then
+        echo "FAIL  $name (llvm-as rejected printer IR)"
+        failed=1
+    elif ! clang++ "$ll" "$RUNTIME" -o "$ir_exe" >/dev/null 2>&1; then
+        echo "FAIL  $name (link error on printer IR)"
+        failed=1
+    else
+        local ir_exit=0
+        "$ir_exe" > "$ir_out" 2>&1 || ir_exit=$?
+        if [[ "$ir_exit" != "0" ]] || ! diff -q "$expected" "$ir_out" >/dev/null 2>&1; then
+            echo "FAIL  $name (printer IR behaves differently, exit $ir_exit)"
+            echo "  expected: $(cat "$expected")"
+            echo "  actual:   $(cat "$ir_out")"
+            failed=1
+        fi
+    fi
+    rm -f "$ll" "$ir_exe" "$ir_out"
+
     if [[ $failed -eq 0 ]]; then
         echo "PASS  $name"
         PASS=$((PASS + 1))

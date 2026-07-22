@@ -12,6 +12,7 @@
 #include "typecheck.h"
 #include "env_print.h"
 #include "error.h"
+#include "irprint.h"
 
 
 static char *read_file(const char *path) {
@@ -162,7 +163,8 @@ static void dump_scopes(ASTNode *n) {
 
 int main(int argc, char **argv) {
     CodegenOptions opts = {0, 0};
-    int quiet = 0;   /* -q: suppress the scope/env dumps on stdout */
+    int quiet = 0;    /* -q: suppress the scope/env dumps on stdout */
+    int emit_ir = 0;  /* -emit-ir: textual IR via our own printer, no LLVM */
     int i;
 
     /* Parse flags */
@@ -170,6 +172,8 @@ int main(int argc, char **argv) {
         if (argv[i][0] != '-') break;
         if (strcmp(argv[i], "-emit-llvm") == 0)
             opts.emit_llvm = 1;
+        else if (strcmp(argv[i], "-emit-ir") == 0)
+            emit_ir = 1;
         else if (strcmp(argv[i], "-O1") == 0)
             opts.opt_level = 1;
         else if (strcmp(argv[i], "-q") == 0)
@@ -182,7 +186,7 @@ int main(int argc, char **argv) {
 
     if (argc - i != 2) {
         fprintf(stderr, "Usage: %s [flags] <input.c> <output>\n", argv[0]);
-        fprintf(stderr, "Flags: -emit-llvm  -O1  -q\n");
+        fprintf(stderr, "Flags: -emit-llvm  -emit-ir  -O1  -q\n");
         return 1;
     }
 
@@ -250,6 +254,22 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+
+    /* -emit-ir: our own textual printer, no LLVM anywhere on this path. */
+    if (emit_ir) {
+        std::string ir = irprint_module(ast);
+        FILE *out = fopen(output_path, "w");
+        if (!out) {
+            fprintf(stderr, "error: cannot open '%s' for writing\n", output_path);
+            free(source);
+            return 1;
+        }
+        fputs(ir.c_str(), out);
+        fclose(out);
+        ast_free(ast);
+        free(source);
+        return 0;
+    }
 
     /* Codegen */
     int result = codegen(ast, output_path, &opts);
