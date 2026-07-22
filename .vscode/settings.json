@@ -1,0 +1,55 @@
+{
+    // Use clangd as the C/C++ language server. Microsoft's cpptools IntelliSense
+    // is disabled below so the two don't fight over the same files.
+    "clangd.path": "/usr/bin/clangd-18",
+    "clangd.arguments": [
+        "--background-index",
+        "--clang-tidy",
+        "--completion-style=detailed",
+        "--header-insertion=iwyu",
+        "--compile-commands-dir=${workspaceFolder}",
+        "--query-driver=/usr/bin/clang++,/usr/bin/clang"
+    ],
+
+    // Disable Microsoft cpptools IntelliSense: clangd handles all of this and
+    // running both produces duplicate squiggles + slower jumps.
+    "C_Cpp.intelliSenseEngine": "disabled",
+    "C_Cpp.autocomplete": "disabled",
+    "C_Cpp.errorSquiggles": "disabled",
+
+    // Headers are C++. Test inputs (tests/**/*.c) are programs in OUR
+    // language, not C -- leave them as plain C highlighting, close enough.
+    "files.associations": {
+        "*.h": "cpp"
+    },
+
+    // Make sure clangd notices when we regenerate compile_commands.json.
+    "files.watcherExclude": {
+        "**/build/**": true,
+        "**/.cache/**": true
+    },
+
+    // Keep the explorer down to what actually needs attention:
+    // src/, runtime/, tests/, Makefile, README. Everything below is
+    // infrastructure that works without being looked at. Toggle any of
+    // these to false if you need to peek inside.
+    "files.exclude": {
+        "build": true,
+        ".cache": true,
+        ".attic": true,
+        ".vscode": true,
+        ".clangd": true,
+        ".editorconfig": true,
+        ".gitignore": true,
+        "compile_commands.json": true,
+        "experiments": true,
+        "writing": true
+    },
+    "search.exclude": {
+        "build": true,
+        ".cache": true,
+        ".attic": true,
+        "experiments": true,
+        "writing": true
+    }
+}

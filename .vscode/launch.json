@@ -1,0 +1,34 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            // Debug the compiler itself (build/cc) on whichever test file is open
+            // in the editor. The runtime is linked in via -o output later, so
+            // this config just runs the front-end+codegen to produce /tmp/x.o.
+            "name": "cc: debug current test file",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/cc",
+            "args": ["${file}", "/tmp/cc_out.o"],
+            "cwd": "${workspaceFolder}",
+            "MIMode": "gdb",
+            "preLaunchTask": "make",
+            "setupCommands": [
+                { "description": "Pretty-print STL containers",
+                  "text": "-enable-pretty-printing",
+                  "ignoreFailures": true }
+            ]
+        },
+        {
+            // Fixed test file (edit `args` if you want a different one).
+            "name": "cc: debug tests/pass/while_sum.c",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/cc",
+            "args": ["${workspaceFolder}/tests/pass/while_sum.c", "/tmp/cc_out.o"],
+            "cwd": "${workspaceFolder}",
+            "MIMode": "gdb",
+            "preLaunchTask": "make"
+        }
+    ]
+}

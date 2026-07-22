@@ -1,0 +1,13 @@
+{
+    // VS Code prompts the user to install these when the workspace is opened.
+    "recommendations": [
+        "llvm-vs-code-extensions.vscode-clangd",
+        "ms-vscode.makefile-tools",
+        "ocamllabs.ocaml-platform",
+        "vadimcn.vscode-lldb"
+    ],
+    // cpptools' IntelliSense fights with clangd; recommend the user not enable it.
+    "unwantedRecommendations": [
+        "ms-vscode.cpptools"
+    ]
+}

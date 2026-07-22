@@ -1,3 +1,10 @@
 build/
 experiments/liveness/liveness
 writing/
+
+# clangd background-index cache (machine-specific, large)
+.cache/
+# parked stale files (old scratch tests, superseded scripts) -- not history
+.attic/
+# bear-generated compile DB: per-machine paths, regenerate on each clone
+compile_commands.json

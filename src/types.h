@@ -16,6 +16,7 @@ typedef enum {
     TYPE_INT,
     TYPE_BOOL,
     TYPE_NUMBER,
+    TYPE_CHAR
     /* grow here: TYPE_FUN, user-defined types, ... */
 } TypeKind;
 
@@ -28,6 +29,7 @@ typedef struct Type {
 Type *type_int(void);
 Type *type_bool(void);
 Type *type_number(void);
+Type *type_char(void);
 
 /* Type equality. For primitives this is just a kind match; it will recurse
    once structured types exist. */

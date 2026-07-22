@@ -18,6 +18,7 @@ struct SymTab;
 
 typedef enum {
     NODE_INT_LIT,
+    NODE_CHAR_LIT,
     NODE_BINARY_OP,
     NODE_UNARY_OP,
     NODE_RETURN,
@@ -55,6 +56,9 @@ struct ASTNode {
     union {
         /* NODE_INT_LIT */
         struct { int value; } int_lit;
+
+        /* NODE_CHAR_LIT */
+        struct { int value; } char_lit;
 
         /* NODE_BINARY_OP */
         struct { BinaryOp op; ASTNode *left; ASTNode *right; } bin;
@@ -102,6 +106,7 @@ struct ASTNode {
 
 /* Constructors — allocate and return a new node */
 ASTNode *ast_int_lit(int value);
+ASTNode *ast_char_lit(int value);
 ASTNode *ast_binary_op(BinaryOp op, ASTNode *left, ASTNode *right);
 ASTNode *ast_unary_op(UnaryOp op, ASTNode *operand);
 ASTNode *ast_return(ASTNode *expr);

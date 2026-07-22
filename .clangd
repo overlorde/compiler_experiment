@@ -1,0 +1,29 @@
+# Project-level clangd config.
+#
+# All sources are .cpp now; the Add block below mainly covers headers opened
+# without a TU context (clangd falls back to these flags for them).
+CompileFlags:
+  Add:
+    - -std=c++17
+  # clangd's "drivers it will trust" allow-list. Without this, the -isystem
+  # flag for LLVM headers can be ignored.
+  CompilationDatabase: .
+
+Diagnostics:
+  # Hide the noisy unused-parameter warnings coming from inside LLVM headers.
+  Suppress:
+    - unused-parameter
+  ClangTidy:
+    # Light set; enable more checks as the codebase matures.
+    Add:
+      - bugprone-*
+      - performance-*
+      - readability-redundant-*
+    Remove:
+      - bugprone-easily-swappable-parameters
+      - readability-redundant-access-specifiers
+
+InlayHints:
+  Enabled: Yes
+  ParameterNames: Yes
+  DeducedTypes: Yes

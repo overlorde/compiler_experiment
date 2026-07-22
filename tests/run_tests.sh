@@ -1,105 +1,147 @@
 #!/usr/bin/env bash
 #
-# Test harness for compiler_experiment
+# Regression test harness for compiler_experiment.
 #
-# For each .c file in tests/phase*/:
-#   1. Compile with build/cc → .o
-#   2. Link with system cc → executable
-#   3. Run and capture stdout + exit code
-#   4. Compare stdout against .expected file
-#   5. If .exitcode file exists, also check exit code
+# Layout (uniform: each test is two files, no third sidecar):
+#   tests/pass/<name>.c          source snippet
+#   tests/pass/<name>.expected   exact stdout the program must produce
+#
+#   tests/fail/<name>.c          source snippet that must NOT typecheck
+#   tests/fail/<name>.expected   extended regex matched against stderr
+#
+# Pass test:
+#   compile -> link with runtime.o -> run -> stdout must equal .expected
+#   AND program must exit 0.
+#
+# Fail test:
+#   compile (no link, no run); compiler must exit non-zero AND its stderr
+#   must match the regex in .expected.
 #
 
-set -euo pipefail
+set -uo pipefail   # NOT -e: failures are normal control flow here
 
 COMPILER="./build/cc"
+RUNTIME="./build/libruntime.a"
+
 PASS=0
 FAIL=0
-ERRORS=""
+FAILED=()
 
 if [[ ! -x "$COMPILER" ]]; then
-    echo "ERROR: Compiler not found at $COMPILER — run 'make' first"
+    echo "ERROR: $COMPILER not found -- run 'make' first" >&2
+    exit 1
+fi
+if [[ ! -f "$RUNTIME" ]]; then
+    echo "ERROR: $RUNTIME not found -- run 'make' first" >&2
     exit 1
 fi
 
-# Collect all test .c files, sorted
-TEST_FILES=$(find tests/ -name '*.c' | sort)
-
-if [[ -z "$TEST_FILES" ]]; then
-    echo "No test files found."
-    exit 0
-fi
-
-for src in $TEST_FILES; do
-    expected="${src%.c}.expected"
-    exitcode_file="${src%.c}.exitcode"
-    test_name="${src#tests/}"
+# -------------------------------------------------------------------------
+# run_pass <src.c>
+# -------------------------------------------------------------------------
+run_pass() {
+    local src=$1
+    local expected="${src%.c}.expected"
+    local name="${src#tests/}"
 
     if [[ ! -f "$expected" ]]; then
-        echo "SKIP  $test_name (no .expected file)"
-        continue
+        echo "SKIP  $name (no .expected)"
+        return
     fi
 
-    # Temporary files for this test
-    obj_file=$(mktemp /tmp/cc_test_XXXXXX.o)
-    exe_file=$(mktemp /tmp/cc_test_XXXXXX)
-    actual_file=$(mktemp /tmp/cc_test_XXXXXX.out)
+    local obj exe out
+    obj=$(mktemp /tmp/cc_test_XXXXXX.o)
+    exe=$(mktemp /tmp/cc_test_XXXXXX)
+    out=$(mktemp /tmp/cc_test_XXXXXX.out)
 
-    # Step 1: Compile .c -> .o with our compiler
-    if ! "$COMPILER" "$src" "$obj_file" 2>/dev/null; then
-        echo "FAIL  $test_name (compile error)"
-        FAIL=$((FAIL + 1))
-        ERRORS="$ERRORS\n  FAIL $test_name: compile error"
-        rm -f "$obj_file" "$exe_file" "$actual_file"
-        continue
+    # compile (suppress the compiler's own stdout/stderr -- they're noisy)
+    if ! "$COMPILER" "$src" "$obj" >/dev/null 2>&1; then
+        echo "FAIL  $name (compile error)"
+        FAIL=$((FAIL + 1)); FAILED+=("$name: compile")
+        rm -f "$obj" "$exe" "$out"; return
     fi
-
-    # Step 2: Link .o -> executable with system cc
-    if ! cc "$obj_file" -o "$exe_file" 2>/dev/null; then
-        echo "FAIL  $test_name (link error)"
-        FAIL=$((FAIL + 1))
-        ERRORS="$ERRORS\n  FAIL $test_name: link error"
-        rm -f "$obj_file" "$exe_file" "$actual_file"
-        continue
+    # link (clang++: the runtime is C++ now, so libstdc++ must come along)
+    if ! clang++ "$obj" "$RUNTIME" -o "$exe" >/dev/null 2>&1; then
+        echo "FAIL  $name (link error)"
+        FAIL=$((FAIL + 1)); FAILED+=("$name: link")
+        rm -f "$obj" "$exe" "$out"; return
     fi
+    # run
+    local exit=0
+    "$exe" > "$out" 2>&1 || exit=$?
 
-    # Step 3: Run and capture output + exit code
-    actual_exit=0
-    "$exe_file" > "$actual_file" 2>&1 || actual_exit=$?
-
-    # Step 4: Compare stdout
-    failed=0
-    if ! diff -q "$expected" "$actual_file" > /dev/null 2>&1; then
-        echo "FAIL  $test_name (output mismatch)"
+    local failed=0
+    if [[ "$exit" != "0" ]]; then
+        echo "FAIL  $name (exit $exit, expected 0)"
+        failed=1
+    fi
+    if ! diff -q "$expected" "$out" >/dev/null 2>&1; then
+        echo "FAIL  $name (stdout mismatch)"
         echo "  expected: $(cat "$expected")"
-        echo "  actual:   $(cat "$actual_file")"
+        echo "  actual:   $(cat "$out")"
         failed=1
     fi
 
-    # Step 5: Check exit code if .exitcode file exists
-    if [[ -f "$exitcode_file" ]]; then
-        expected_exit=$(cat "$exitcode_file" | tr -d '[:space:]')
-        if [[ "$actual_exit" != "$expected_exit" ]]; then
-            echo "FAIL  $test_name (exit code: expected $expected_exit, got $actual_exit)"
-            failed=1
-        fi
-    fi
-
     if [[ $failed -eq 0 ]]; then
-        echo "PASS  $test_name"
+        echo "PASS  $name"
         PASS=$((PASS + 1))
     else
-        FAIL=$((FAIL + 1))
-        ERRORS="$ERRORS\n  FAIL $test_name"
+        FAIL=$((FAIL + 1)); FAILED+=("$name")
+    fi
+    rm -f "$obj" "$exe" "$out"
+}
+
+# -------------------------------------------------------------------------
+# run_fail <src.c>
+# -------------------------------------------------------------------------
+run_fail() {
+    local src=$1
+    local expected="${src%.c}.expected"
+    local name="${src#tests/}"
+
+    if [[ ! -f "$expected" ]]; then
+        echo "SKIP  $name (no .expected)"
+        return
     fi
 
-    rm -f "$obj_file" "$exe_file" "$actual_file"
-done
+    local obj err
+    obj=$(mktemp /tmp/cc_test_XXXXXX.o)
+    err=$(mktemp /tmp/cc_test_XXXXXX.err)
+
+    # Compile must fail. Discard stdout (scope dumps); keep stderr for matching.
+    "$COMPILER" "$src" "$obj" >/dev/null 2>"$err"
+    local rc=$?
+    rm -f "$obj"
+
+    local regex
+    regex=$(cat "$expected")
+
+    if [[ $rc -eq 0 ]]; then
+        echo "FAIL  $name (compiler accepted; expected non-zero exit)"
+        FAIL=$((FAIL + 1)); FAILED+=("$name: accepted")
+    elif ! grep -E -q -- "$regex" "$err"; then
+        echo "FAIL  $name (stderr did not match)"
+        echo "  regex:  $regex"
+        echo "  stderr: $(cat "$err")"
+        FAIL=$((FAIL + 1)); FAILED+=("$name: regex")
+    else
+        echo "PASS  $name"
+        PASS=$((PASS + 1))
+    fi
+    rm -f "$err"
+}
+
+# -------------------------------------------------------------------------
+# walk both directories
+# -------------------------------------------------------------------------
+shopt -s nullglob
+for f in tests/pass/*.c; do run_pass "$f"; done
+for f in tests/fail/*.c; do run_fail "$f"; done
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed, out of $((PASS + FAIL)) tests"
-
 if [[ $FAIL -gt 0 ]]; then
-    echo -e "\nFailures:$ERRORS"
+    echo "Failures:"
+    for n in "${FAILED[@]}"; do echo "  $n"; done
     exit 1
 fi
