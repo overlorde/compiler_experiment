@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "parser.h"
+#include "error.h"
 #include "lexer.h"
 
 /* --- Helper functions --- */
@@ -17,10 +18,9 @@ static int check(Parser *p, TokenKind kind) {
 
 static int expect(Parser *p, TokenKind kind) {
     if (!check(p, kind)) {
-        fprintf(stderr, "error: line %d: expected '%s', got '%s'\n",
-                p->current.line,
-                token_kind_name(kind),
-                token_kind_name(p->current.kind));
+        error_at(p->current.line, "expected '%s', got '%s'",
+                 token_kind_name(kind),
+                 token_kind_name(p->current.kind));
         return 0;
     }
     advance(p);
@@ -47,8 +47,8 @@ static Type *parse_type(Parser *p) {
     if (check(p, TOK_KW_BOOL)) { advance(p); return type_bool(); }
     if (check(p, TOK_KW_NUMBER)) { advance(p); return type_number(); }
     if (check(p, TOK_KW_CHAR)) { advance(p); return type_char(); }
-    fprintf(stderr, "error: line %d: expected type, got '%s'\n",
-            p->current.line, token_kind_name(p->current.kind));
+    error_at(p->current.line, "expected type, got '%s'",
+             token_kind_name(p->current.kind));
     return NULL;
 }
 
@@ -122,8 +122,8 @@ static ASTNode *parse_primary_inner(Parser *p) {
         if (!expect(p, TOK_RPAREN)) { ast_free(expr); return NULL; }
         return expr;
     }
-    fprintf(stderr, "error: line %d: expected expression, got '%s'\n",
-            p->current.line, token_kind_name(p->current.kind));
+    error_at(p->current.line, "expected expression, got '%s'",
+             token_kind_name(p->current.kind));
     return NULL;
 }
 
@@ -278,8 +278,7 @@ static ASTNode *parse_statement_inner(Parser *p) {
         Type *ty = parse_type(p);
         if (!ty) return NULL;
         if (!check(p, TOK_IDENT)) {
-            fprintf(stderr, "error: line %d: expected variable name after type\n",
-                    p->current.line);
+            error_at(p->current.line, "expected variable name after type");
             return NULL;
         }
         char *name = (char *)malloc(p->current.length + 1);
@@ -342,8 +341,7 @@ static ASTNode *parse_statement_inner(Parser *p) {
             Type *ty = parse_type(p);
             if (!ty) return NULL;
             if (!check(p, TOK_IDENT)) {
-                fprintf(stderr, "error: line %d: expected variable name after type\n",
-                        p->current.line);
+                error_at(p->current.line, "expected variable name after type");
                 return NULL;
             }
             char *name = (char *)malloc(p->current.length + 1);
@@ -472,8 +470,8 @@ static ASTNode *parse_function(Parser *p) {
     if (!ret_type) return NULL;
 
     if (!check(p, TOK_IDENT)) {
-        fprintf(stderr, "error: line %d: expected function name, got '%s'\n",
-                p->current.line, token_kind_name(p->current.kind));
+        error_at(p->current.line, "expected function name, got '%s'",
+                 token_kind_name(p->current.kind));
         return NULL;
     }
     char *func_name = (char *)malloc(p->current.length + 1);
@@ -492,7 +490,7 @@ static ASTNode *parse_function(Parser *p) {
         Type *pty = parse_type(p);
         if (!pty) { free(func_name); free(params); return NULL; }
         if (!check(p, TOK_IDENT)) {
-            fprintf(stderr, "error: line %d: expected parameter name\n", p->current.line);
+            error_at(p->current.line, "expected parameter name");
             free(func_name); free(params); return NULL;
         }
         char *pname = (char *)malloc(p->current.length + 1);
@@ -506,7 +504,7 @@ static ASTNode *parse_function(Parser *p) {
             Type *ty = parse_type(p);
             if (!ty) { free(func_name); free(params); return NULL; }
             if (!check(p, TOK_IDENT)) {
-                fprintf(stderr, "error: line %d: expected parameter name\n", p->current.line);
+                error_at(p->current.line, "expected parameter name");
                 free(func_name); free(params); return NULL;
             }
             if (param_count >= param_cap) {
