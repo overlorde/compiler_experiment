@@ -62,6 +62,9 @@ typedef struct {
     const char *source;  /* full source text (null-terminated) */
     const char *current; /* current position in source */
     int line;
+    int failed;          /* set on first lex error; lexing then yields EOF
+                            without re-reporting (peek re-lexes, so a plain
+                            error return would get reported twice) */
 } Lexer;
 
 /* Initialize lexer with source text */

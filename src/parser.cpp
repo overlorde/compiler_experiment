@@ -547,7 +547,10 @@ ASTNode *parser_parse(Parser *parser) {
     int count = 0;
     ASTNode **functions = (ASTNode **)malloc(capacity * sizeof(ASTNode *));
 
-    while (!check(parser, TOK_EOF)) {
+    /* Stop as soon as any error has been reported: a NULL from
+     * parse_function is ambiguous (forward declaration OR error), and
+     * looping past a real error can spin forever on the same token. */
+    while (!check(parser, TOK_EOF) && error_count() == 0) {
         ASTNode *func = parse_function(parser);
         if (!func) continue; /* forward declaration — skip */
         if (count >= capacity) {

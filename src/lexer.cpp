@@ -4,11 +4,25 @@
 #include <ctype.h>
 
 #include "lexer.h"
+#include "error.h"
 
 void lexer_init(Lexer *lexer, const char *source) {
     lexer->source  = source;
     lexer->current = source;
     lexer->line    = 1;
+    lexer->failed  = 0;
+}
+
+/* The token every call yields once lexing has failed: report the error at
+ * the site, set lexer->failed, and hand back EOF so the parser unwinds
+ * through its normal error paths. */
+static Token eof_token(Lexer *lexer) {
+    Token tok = {};
+    tok.kind = TOK_EOF;
+    tok.line = lexer->line;
+    tok.start = lexer->current;
+    tok.length = 0;
+    return tok;
 }
 
 static Token make_token(Lexer *lexer, TokenKind kind, int length) {
@@ -22,6 +36,9 @@ static Token make_token(Lexer *lexer, TokenKind kind, int length) {
 }
 
 Token lexer_next(Lexer *lexer) {
+    if (lexer->failed)
+        return eof_token(lexer);
+
     while (isspace(*lexer->current)) {
         if (*lexer->current == '\n') lexer->line++;
         lexer->current++;
@@ -73,13 +90,15 @@ Token lexer_next(Lexer *lexer) {
         lexer->current++;                  /* consume opening quote */
         char value = *lexer->current;
         if (value == '\0' || value == '\n') {
-            fprintf(stderr, "error: line %d: unterminated char literal\n", lexer->line);
-            exit(1);
+            error_at(lexer->line, "unterminated char literal");
+            lexer->failed = 1;
+            return eof_token(lexer);
         }
         lexer->current++;                  /* consume the byte */
         if (*lexer->current != '\'') {
-            fprintf(stderr, "error: line %d: expected closing ' in char literal\n", lexer->line);
-            exit(1);
+            error_at(lexer->line, "expected closing ' in char literal");
+            lexer->failed = 1;
+            return eof_token(lexer);
         }
         lexer->current++;                  /* consume closing quote */
         Token tok = {};
@@ -135,8 +154,9 @@ Token lexer_next(Lexer *lexer) {
         return tok;
     }
 
-    fprintf(stderr, "error: line %d: unexpected character '%c'\n", lexer->line, c);
-    exit(1);
+    error_at(lexer->line, "unexpected character '%c'", c);
+    lexer->failed = 1;
+    return eof_token(lexer);
 }
 
 Token lexer_peek(Lexer *lexer) {

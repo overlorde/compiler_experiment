@@ -11,6 +11,7 @@
 #include "types.h"
 #include "typecheck.h"
 #include "env_print.h"
+#include "error.h"
 
 
 static char *read_file(const char *path) {
@@ -195,9 +196,11 @@ int main(int argc, char **argv) {
     ASTNode *ast = parser_parse(&parser);
 
 
-    //  ASTNode *ast = typecheck()
-    if (!ast) {
-        fprintf(stderr, "error: parsing failed\n");
+    /* Bail if parsing reported anything (the messages are already out via
+     * the error sink) or produced no AST at all. */
+    if (error_count() > 0 || !ast) {
+        if (!ast)
+            fprintf(stderr, "error: parsing failed\n");
         free(source);
         return 1;
     }
