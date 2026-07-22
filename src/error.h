@@ -14,6 +14,19 @@
  * instead of dying on the first.
  */
 
+/*
+ * Where formatted error lines go. The default sink writes to stderr, so the
+ * CLI behaves as it always has. An embedder (the wasm entry point, a test
+ * harness) can install its own sink to capture messages as data instead.
+ *
+ * The sink receives one complete message per call, already formatted
+ * ("error: line N: ..."), without a trailing newline.
+ */
+typedef void (*ErrorSink)(void *userdata, const char *msg);
+
+/* Install a sink. Passing NULL restores the default stderr sink. */
+void error_set_sink(ErrorSink sink, void *userdata);
+
 /* Report an error at a source line. Pass line <= 0 to omit the location. */
 void error_at(int line, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
