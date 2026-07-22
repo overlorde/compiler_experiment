@@ -19,9 +19,23 @@ RUNTIME_SRCS := $(wildcard $(RUNTIME_DIR)/*.cpp)
 RUNTIME_OBJS := $(patsubst $(RUNTIME_DIR)/%.cpp,$(BUILD_DIR)/runtime/%.o,$(RUNTIME_SRCS))
 RUNTIME_LIB  := $(BUILD_DIR)/libruntime.a
 
-.PHONY: all clean test run
+# Wasm build: the whole frontend + the textual IR printer, no LLVM.
+# codegen.cpp (needs libLLVM) and main.cpp (CLI) are excluded;
+# wasm_api.cpp's ce_compile is the exported entry point.
+WASM_SRCS := $(filter-out $(SRC_DIR)/codegen.cpp $(SRC_DIR)/main.cpp,$(SRCS))
+WASM_OUT  := $(BUILD_DIR)/compiler.js
+
+.PHONY: all clean test run wasm
 
 all: $(TARGET) $(RUNTIME_LIB)
+
+wasm: | $(BUILD_DIR)
+	emcc -O2 -std=c++17 $(WASM_SRCS) -o $(WASM_OUT) \
+	  -sEXPORTED_FUNCTIONS=_ce_compile \
+	  -sEXPORTED_RUNTIME_METHODS=ccall,cwrap \
+	  -sMODULARIZE=1 -sEXPORT_NAME=CECompiler \
+	  -sALLOW_MEMORY_GROWTH=1
+	@ls -la $(BUILD_DIR)/compiler.js $(BUILD_DIR)/compiler.wasm
 
 $(TARGET): $(OBJS)
 	$(CXX) $(OBJS) -o $@ $(LDFLAGS)
