@@ -162,6 +162,7 @@ static void dump_scopes(ASTNode *n) {
 
 int main(int argc, char **argv) {
     CodegenOptions opts = {0, 0};
+    int quiet = 0;   /* -q: suppress the scope/env dumps on stdout */
     int i;
 
     /* Parse flags */
@@ -171,6 +172,8 @@ int main(int argc, char **argv) {
             opts.emit_llvm = 1;
         else if (strcmp(argv[i], "-O1") == 0)
             opts.opt_level = 1;
+        else if (strcmp(argv[i], "-q") == 0)
+            quiet = 1;
         else {
             fprintf(stderr, "error: unknown flag '%s'\n", argv[i]);
             return 1;
@@ -179,7 +182,7 @@ int main(int argc, char **argv) {
 
     if (argc - i != 2) {
         fprintf(stderr, "Usage: %s [flags] <input.c> <output>\n", argv[0]);
-        fprintf(stderr, "Flags: -emit-llvm  -O1\n");
+        fprintf(stderr, "Flags: -emit-llvm  -O1  -q\n");
         return 1;
     }
 
@@ -232,9 +235,11 @@ int main(int argc, char **argv) {
        line per scope, indented by depth); the two env_dumps below show the two
        flat root environments. Each SymTab stores values as void*, so env_dump
        takes a renderer that knows the value type -- here all hold Type*. */
-    dump_scopes(ast);
-    env_dump(stdout, "type_env", &type_env, render_type);
-    env_dump(stdout, "var_env",  &var_env,  render_type);
+    if (!quiet) {
+        dump_scopes(ast);
+        env_dump(stdout, "type_env", &type_env, render_type);
+        env_dump(stdout, "var_env",  &var_env,  render_type);
+    }
 
     int error_code = typecheck(ast, &type_env, &func_env, &var_env, &op_env);
 
