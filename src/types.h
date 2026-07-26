@@ -23,7 +23,10 @@ typedef enum {
 
 typedef struct Type {
     TypeKind kind;
-    /* add a union of payloads here for structured types later */
+    struct Type *param;   /* TYPE_PTR: the pointee (phantom -- erased at codegen).
+                             NULL means the untyped bare `ptr`. */
+    const char *display;  /* cached name for parameterized types ("ptr<int>");
+                             NULL for primitives, which have fixed names. */
 } Type;
 
 /* Singletons for the primitive types. */
@@ -32,6 +35,10 @@ Type *type_bool(void);
 Type *type_number(void);
 Type *type_char(void);
 Type *type_ptr(void);
+
+/* The parameterized pointer type ptr<elem>. Interned: the same elem always
+   returns the same Type*, and the node lives forever like the singletons. */
+Type *type_ptr_of(Type *elem);
 
 /* Type equality. For primitives this is just a kind match; it will recurse
    once structured types exist. */

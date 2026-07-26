@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stddef.h>   /* NULL */
+#include <string.h>   /* strcmp: load/store get their own judgments */
 
 #include "typecheck.h"
 #include "types.h"
@@ -101,9 +102,35 @@ static Type *check_expr(SymTab *scope, ASTNode *e) {
         return NULL;
     }
 
-    /*  call: look up callee in g_funcs; check arg count + each arg type   */
-    /*        against params[i].type; result type = callee ret_type       */
+    /*  Γ ⊢ p : ptr<τ>                Γ ⊢ p : ptr<τ>   Γ ⊢ v : τ          */
+    /*  ────────────────  (load)      ─────────────────────────  (store)  */
+    /*  Γ ⊢ load(p) : τ               Γ ⊢ store(p, v) : int               */
+    /*                                                                     */
+    /*  The generic call rule below can't express a result type that       */
+    /*  depends on the argument's phantom parameter, so these two          */
+    /*  primitives get their own judgments (until real polymorphism --     */
+    /*  HM, phase 3 -- subsumes them). Bare `ptr` reads/writes int, which  */
+    /*  keeps pre-phantom programs checking unchanged.                     */
     case NODE_CALL: {
+        if (strcmp(e->data.call.name, "load") == 0
+            && e->data.call.arg_count == 1) {
+            Type *pt = check_expr(scope, e->data.call.args[0]);
+            expect(pt, type_ptr(), e->line, "argument");
+            if (pt && pt->kind == TYPE_PTR && pt->param)
+                return pt->param;
+            return type_int();
+        }
+        if (strcmp(e->data.call.name, "store") == 0
+            && e->data.call.arg_count == 2) {
+            Type *pt = check_expr(scope, e->data.call.args[0]);
+            expect(pt, type_ptr(), e->line, "argument");
+            Type *elem = (pt && pt->kind == TYPE_PTR && pt->param)
+                       ? pt->param : type_int();
+            Type *vt = check_expr(scope, e->data.call.args[1]);
+            expect(vt, elem, e->line, "argument");
+            return type_int();
+        }
+
         ASTNode *fn = (ASTNode *)symtab_lookup(g_funcs, e->data.call.name);
         if (!fn) {
             error_at(e->line, "unknown function '%s'", e->data.call.name);

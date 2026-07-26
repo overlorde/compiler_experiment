@@ -48,7 +48,25 @@ static Type *parse_type(Parser *p) {
     if (check(p, TOK_KW_BOOL)) { advance(p); return type_bool(); }
     if (check(p, TOK_KW_NUMBER)) { advance(p); return type_number(); }
     if (check(p, TOK_KW_CHAR)) { advance(p); return type_char(); }
-    if (check(p, TOK_KW_PTR))  { advance(p); return type_ptr();  }
+    if (check(p, TOK_KW_PTR)) {
+        advance(p);
+        /* ptr<elem>: optional phantom parameter. Recursing through
+           parse_type gives ptr<ptr<int>> for free; the lexer never fuses
+           '>>', so nested closers are two plain TOK_GTs. */
+        if (check(p, TOK_LT)) {
+            advance(p);
+            Type *elem = parse_type(p);
+            if (!elem) return NULL;
+            if (!check(p, TOK_GT)) {
+                error_at(p->current.line, "expected '>' to close ptr<...>, got '%s'",
+                         token_kind_name(p->current.kind));
+                return NULL;
+            }
+            advance(p);
+            return type_ptr_of(elem);
+        }
+        return type_ptr();
+    }
     error_at(p->current.line, "expected type, got '%s'",
              token_kind_name(p->current.kind));
     return NULL;
