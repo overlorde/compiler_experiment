@@ -417,10 +417,14 @@ int codegen(ASTNode *ast, const char *output_path, CodegenOptions *opts) {
     // Pass 1a: declare the runtime built-ins. Bodies live in runtime/,
     // resolved at link time.
     {
-        FunctionType *word_to_word = FunctionType::get(word, {word}, /*isVarArg=*/false);
-        Function::Create(word_to_word, Function::ExternalLinkage, "print_int",  module.get());
-        Function::Create(word_to_word, Function::ExternalLinkage, "print_bool", module.get());
-        Function::Create(word_to_word, Function::ExternalLinkage, "print_char", module.get());
+        FunctionType *word_to_word  = FunctionType::get(word, {word}, /*isVarArg=*/false);
+        FunctionType *word2_to_word = FunctionType::get(word, {word, word}, /*isVarArg=*/false);
+        Function::Create(word_to_word,  Function::ExternalLinkage, "print_int",  module.get());
+        Function::Create(word_to_word,  Function::ExternalLinkage, "print_bool", module.get());
+        Function::Create(word_to_word,  Function::ExternalLinkage, "print_char", module.get());
+        Function::Create(word_to_word,  Function::ExternalLinkage, "alloc",      module.get());
+        Function::Create(word_to_word,  Function::ExternalLinkage, "load",       module.get());
+        Function::Create(word2_to_word, Function::ExternalLinkage, "store",      module.get());
     }
 
     int func_count = ast->data.program.count;

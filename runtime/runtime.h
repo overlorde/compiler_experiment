@@ -25,6 +25,12 @@ int64_t print_int(int64_t x);
 int64_t print_bool(int64_t x);
 int64_t print_char(int64_t x);
 
+/* Heap primitives (memory.cpp) — stdlib-only by typechecker decree:
+ * the checker drops these from scope before looking at user code. */
+int64_t alloc(int64_t n);
+int64_t load(int64_t p);
+int64_t store(int64_t p, int64_t v);
+
 } // extern "C"
 
 #endif /* RUNTIME_H */

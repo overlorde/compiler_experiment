@@ -244,17 +244,23 @@ static char  bi_arg_name[] = "x";   /* shared param name; mutable to satisfy Par
 static Param print_int_params [1];
 static Param print_bool_params[1];
 static Param print_char_params[1];
+static Param alloc_params     [1];
+static Param load_params      [1];
+static Param store_params     [2];
 
 static ASTNode print_int_sig;
 static ASTNode print_bool_sig;
 static ASTNode print_char_sig;
+static ASTNode alloc_sig;
+static ASTNode load_sig;
+static ASTNode store_sig;
 
 /* Helper: fill an ASTNode in-place as a builtin function signature.
  * Replaces the C99 compound-literal pattern that C++ doesn't accept. */
-static void make_builtin_sig(ASTNode *sig, const char *name,
+static void make_builtin_sig(ASTNode *sig, const char *name, Type *ret,
                              Param *params, int nparams) {
     sig->kind = NODE_FUNCTION;
-    sig->data.func.ret_type    = type_int();
+    sig->data.func.ret_type    = ret;
     sig->data.func.name        = (char *)name;
     sig->data.func.params      = params;
     sig->data.func.param_count = nparams;
@@ -269,13 +275,27 @@ void typecheck_register_builtins(SymTab *func_env) {
     print_bool_params[0].name = bi_arg_name; print_bool_params[0].type = type_bool();
     print_char_params[0].name = bi_arg_name; print_char_params[0].type = type_char();
 
-    make_builtin_sig(&print_int_sig,  "print_int",  print_int_params,  1);
-    make_builtin_sig(&print_bool_sig, "print_bool", print_bool_params, 1);
-    make_builtin_sig(&print_char_sig, "print_char", print_char_params, 1);
+    /* Heap primitives. ptr is nominal: no subtype edges connect it to the
+     * numeric types, so load(42) or alloc(8)+1 die in the ordinary call and
+     * operator rules -- the signatures below are the entire safety story. */
+    alloc_params[0].name = bi_arg_name; alloc_params[0].type = type_int();
+    load_params [0].name = bi_arg_name; load_params [0].type = type_ptr();
+    store_params[0].name = bi_arg_name; store_params[0].type = type_ptr();
+    store_params[1].name = bi_arg_name; store_params[1].type = type_int();
+
+    make_builtin_sig(&print_int_sig,  "print_int",  type_int(), print_int_params,  1);
+    make_builtin_sig(&print_bool_sig, "print_bool", type_int(), print_bool_params, 1);
+    make_builtin_sig(&print_char_sig, "print_char", type_int(), print_char_params, 1);
+    make_builtin_sig(&alloc_sig,      "alloc",      type_ptr(), alloc_params,      1);
+    make_builtin_sig(&load_sig,       "load",       type_int(), load_params,       1);
+    make_builtin_sig(&store_sig,      "store",      type_int(), store_params,      2);
 
     symtab_add(func_env, "print_int",  &print_int_sig);
     symtab_add(func_env, "print_bool", &print_bool_sig);
     symtab_add(func_env, "print_char", &print_char_sig);
+    symtab_add(func_env, "alloc",      &alloc_sig);
+    symtab_add(func_env, "load",       &load_sig);
+    symtab_add(func_env, "store",      &store_sig);
 }
 
 /* ---- entry ------------------------------------------------------------ */
