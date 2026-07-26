@@ -425,6 +425,7 @@ int codegen(ASTNode *ast, const char *output_path, CodegenOptions *opts) {
         Function::Create(word_to_word,  Function::ExternalLinkage, "alloc",      module.get());
         Function::Create(word_to_word,  Function::ExternalLinkage, "load",       module.get());
         Function::Create(word2_to_word, Function::ExternalLinkage, "store",      module.get());
+        Function::Create(word2_to_word, Function::ExternalLinkage, "offset",     module.get());
     }
 
     int func_count = ast->data.program.count;

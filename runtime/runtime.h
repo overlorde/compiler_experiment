@@ -30,6 +30,7 @@ int64_t print_char(int64_t x);
 int64_t alloc(int64_t n);
 int64_t load(int64_t p);
 int64_t store(int64_t p, int64_t v);
+int64_t offset(int64_t p, int64_t i);   /* address of cell i: p + 8*i */
 
 } // extern "C"
 

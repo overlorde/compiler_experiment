@@ -131,6 +131,24 @@ static Type *check_expr(SymTab *scope, ASTNode *e) {
             return type_int();
         }
 
+        /*  Γ ⊢ p : ptr<τ>   Γ ⊢ i : int                                   */
+        /*  ─────────────────────────────  (offset)                        */
+        /*  Γ ⊢ offset(p, i) : ptr<τ>                                      */
+        /*                                                                 */
+        /*  The phantom survives arithmetic: cell i of an int block is     */
+        /*  still an int slot. Note what the rule does NOT check: that i   */
+        /*  is in bounds. Lengths are runtime values, and Γ doesn't speak  */
+        /*  about values -- out-of-range offsets typecheck and crash, by   */
+        /*  explicit design choice (the C road).                           */
+        if (strcmp(e->data.call.name, "offset") == 0
+            && e->data.call.arg_count == 2) {
+            Type *pt = check_expr(scope, e->data.call.args[0]);
+            expect(pt, type_ptr(), e->line, "argument");
+            Type *it = check_expr(scope, e->data.call.args[1]);
+            expect(it, type_int(), e->line, "argument");
+            return (pt && pt->kind == TYPE_PTR) ? pt : type_ptr();
+        }
+
         ASTNode *fn = (ASTNode *)symtab_lookup(g_funcs, e->data.call.name);
         if (!fn) {
             error_at(e->line, "unknown function '%s'", e->data.call.name);
@@ -274,6 +292,7 @@ static Param print_char_params[1];
 static Param alloc_params     [1];
 static Param load_params      [1];
 static Param store_params     [2];
+static Param offset_params    [2];
 
 static ASTNode print_int_sig;
 static ASTNode print_bool_sig;
@@ -281,6 +300,7 @@ static ASTNode print_char_sig;
 static ASTNode alloc_sig;
 static ASTNode load_sig;
 static ASTNode store_sig;
+static ASTNode offset_sig;
 
 /* Helper: fill an ASTNode in-place as a builtin function signature.
  * Replaces the C99 compound-literal pattern that C++ doesn't accept. */
@@ -309,6 +329,8 @@ void typecheck_register_builtins(SymTab *func_env) {
     load_params [0].name = bi_arg_name; load_params [0].type = type_ptr();
     store_params[0].name = bi_arg_name; store_params[0].type = type_ptr();
     store_params[1].name = bi_arg_name; store_params[1].type = type_int();
+    offset_params[0].name = bi_arg_name; offset_params[0].type = type_ptr();
+    offset_params[1].name = bi_arg_name; offset_params[1].type = type_int();
 
     make_builtin_sig(&print_int_sig,  "print_int",  type_int(), print_int_params,  1);
     make_builtin_sig(&print_bool_sig, "print_bool", type_int(), print_bool_params, 1);
@@ -316,6 +338,7 @@ void typecheck_register_builtins(SymTab *func_env) {
     make_builtin_sig(&alloc_sig,      "alloc",      type_ptr(), alloc_params,      1);
     make_builtin_sig(&load_sig,       "load",       type_int(), load_params,       1);
     make_builtin_sig(&store_sig,      "store",      type_int(), store_params,      2);
+    make_builtin_sig(&offset_sig,     "offset",     type_ptr(), offset_params,     2);
 
     symtab_add(func_env, "print_int",  &print_int_sig);
     symtab_add(func_env, "print_bool", &print_bool_sig);
@@ -323,6 +346,7 @@ void typecheck_register_builtins(SymTab *func_env) {
     symtab_add(func_env, "alloc",      &alloc_sig);
     symtab_add(func_env, "load",       &load_sig);
     symtab_add(func_env, "store",      &store_sig);
+    symtab_add(func_env, "offset",     &offset_sig);
 }
 
 /* ---- entry ------------------------------------------------------------ */

@@ -378,6 +378,7 @@ std::string irprint_module(ASTNode *ast) {
     p.out += "declare i64 @alloc(i64)\n";
     p.out += "declare i64 @load(i64)\n";
     p.out += "declare i64 @store(i64, i64)\n";
+    p.out += "declare i64 @offset(i64, i64)\n";
 
     for (int i = 0; i < ast->data.program.count; i++) {
         p.out += "\n";

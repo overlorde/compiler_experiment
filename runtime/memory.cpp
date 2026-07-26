@@ -30,4 +30,11 @@ int64_t store(int64_t p, int64_t v) {
     return 0;
 }
 
+/* Element-scaled pointer arithmetic: cell i of a block. The *8 lives here
+ * -- not in codegen -- so the backend stays type-blind: it sees an ordinary
+ * call, never needing to know one operand was an address. */
+int64_t offset(int64_t p, int64_t i) {
+    return p + 8 * i;
+}
+
 } // extern "C"
