@@ -8,19 +8,22 @@
  *   - builtin signatures registered for the typechecker
  *     (src/typecheck.cpp, typecheck_register_builtins)
  *
- * Everything is `int` by design: the front end erases all source types
- * (int, bool, char, number) to i32, so print_bool/print_char take plain
- * int to match the ABI. Names are unmangled (extern "C") because codegen
- * emits literal symbol names like @print_int.
+ * Everything is `int64_t` by design: the front end erases all source
+ * types (int, bool, char, number) to one i64 machine word — wide enough
+ * to also carry an address once pointers arrive. Names are unmangled
+ * (extern "C") because codegen emits literal symbol names like
+ * @print_int.
  */
 #ifndef RUNTIME_H
 #define RUNTIME_H
 
+#include <cstdint>
+
 extern "C" {
 
-int print_int(int x);
-int print_bool(int x);
-int print_char(int x);
+int64_t print_int(int64_t x);
+int64_t print_bool(int64_t x);
+int64_t print_char(int64_t x);
 
 } // extern "C"
 

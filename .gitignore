@@ -8,3 +8,4 @@ writing/
 .attic/
 # bear-generated compile DB: per-machine paths, regenerate on each clone
 compile_commands.json
+a.out

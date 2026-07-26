@@ -1,7 +1,7 @@
 // irprint.cpp -- AST -> LLVM IR as text, no LLVM linked.
 //
 // Mirrors codegen.cpp case for case: where codegen calls
-// b.CreateAdd(l, r, "add"), this prints "%.tN = add i32 L, R". The state the
+// b.CreateAdd(l, r, "add"), this prints "%.tN = add i64 L, R". The state the
 // IRBuilder tracked for us -- fresh value names, label names, which register
 // holds which variable's slot, whether the current block is terminated -- is
 // carried explicitly in Printer.
@@ -30,6 +30,8 @@ struct Printer {
     int addr = 0;    // %x.addr.K counter, per function
     int label = 0;   // suffix for then/else/... labels, per function
     bool terminated = false;  // current block already ended in ret/br?
+    bool in_main = false;     // main returns i32 (crt0 contract), not the i64 word
+
 };
 
 static std::string sym_lookup(const Printer &p, const char *name) {
@@ -72,17 +74,17 @@ static std::string emit_unary(Printer &p, UnaryOp op, const std::string &v) {
     std::string t = fresh_tmp(p);
     switch (op) {
     case OP_NEG:
-        inst(p, t + " = sub i32 0, " + v);
+        inst(p, t + " = sub i64 0, " + v);
         return t;
     case OP_NOT: {
-        // !x  ==  (x == 0); widen the i1 result back to i32.
-        inst(p, t + " = icmp eq i32 " + v + ", 0");
+        // !x  ==  (x == 0); widen the i1 result back to i64.
+        inst(p, t + " = icmp eq i64 " + v + ", 0");
         std::string e = fresh_tmp(p);
-        inst(p, e + " = zext i1 " + t + " to i32");
+        inst(p, e + " = zext i1 " + t + " to i64");
         return e;
     }
     case OP_BITNOT:
-        inst(p, t + " = xor i32 " + v + ", -1");
+        inst(p, t + " = xor i64 " + v + ", -1");
         return t;
     }
     assert(false && "emit_unary: unknown UnaryOp");
@@ -109,26 +111,26 @@ static std::string emit_binop(Printer &p, BinaryOp op,
         // Bitwise AND/OR of (l != 0) and (r != 0), widened back. Not
         // short-circuit -- both sides are already evaluated, same as codegen.
         std::string lb = fresh_tmp(p);
-        inst(p, lb + " = icmp ne i32 " + l + ", 0");
+        inst(p, lb + " = icmp ne i64 " + l + ", 0");
         std::string rb = fresh_tmp(p);
-        inst(p, rb + " = icmp ne i32 " + r + ", 0");
+        inst(p, rb + " = icmp ne i64 " + r + ", 0");
         std::string res = fresh_tmp(p);
         inst(p, res + " = " + (op == OP_AND ? std::string("and") : std::string("or"))
                 + " i1 " + lb + ", " + rb);
         std::string e = fresh_tmp(p);
-        inst(p, e + " = zext i1 " + res + " to i32");
+        inst(p, e + " = zext i1 " + res + " to i64");
         return e;
     }
     }
     std::string t = fresh_tmp(p);
     if (arith) {
-        inst(p, t + " = " + arith + " i32 " + l + ", " + r);
+        inst(p, t + " = " + arith + " i64 " + l + ", " + r);
         return t;
     }
     assert(cmp);
-    inst(p, t + " = icmp " + std::string(cmp) + " i32 " + l + ", " + r);
+    inst(p, t + " = icmp " + std::string(cmp) + " i64 " + l + ", " + r);
     std::string e = fresh_tmp(p);
-    inst(p, e + " = zext i1 " + t + " to i32");
+    inst(p, e + " = zext i1 " + t + " to i64");
     return e;
 }
 
@@ -154,7 +156,7 @@ static std::string emit_expr(Printer &p, ASTNode *node) {
     case NODE_VAR_REF: {
         std::string a = sym_lookup(p, node->data.var_ref.name);
         std::string t = fresh_tmp(p);
-        inst(p, t + " = load i32, ptr " + a + ", align 4");
+        inst(p, t + " = load i64, ptr " + a + ", align 8");
         return t;
     }
 
@@ -162,10 +164,10 @@ static std::string emit_expr(Printer &p, ASTNode *node) {
         std::string args;
         for (int i = 0; i < node->data.call.arg_count; i++) {
             if (i) args += ", ";
-            args += "i32 " + emit_expr(p, node->data.call.args[i]);
+            args += "i64 " + emit_expr(p, node->data.call.args[i]);
         }
         std::string t = fresh_tmp(p);
-        inst(p, t + " = call i32 @" + node->data.call.name + "(" + args + ")");
+        inst(p, t + " = call i64 @" + node->data.call.name + "(" + args + ")");
         return t;
     }
 
@@ -175,16 +177,16 @@ static std::string emit_expr(Printer &p, ASTNode *node) {
     }
 }
 
-// Build an i1 from an i32 condition (cond != 0).
+// Build an i1 from an i64 condition (cond != 0).
 static std::string cond_to_i1(Printer &p, const std::string &v) {
     std::string t = fresh_tmp(p);
-    inst(p, t + " = icmp ne i32 " + v + ", 0");
+    inst(p, t + " = icmp ne i64 " + v + ", 0");
     return t;
 }
 
 static std::string emit_alloca(Printer &p, const char *name) {
     std::string a = "%" + std::string(name) + ".addr." + std::to_string(p.addr++);
-    inst(p, a + " = alloca i32, align 4");
+    inst(p, a + " = alloca i64, align 8");
     p.syms.push_back({name, a});
     return a;
 }
@@ -204,7 +206,15 @@ static void emit_stmt(Printer &p, ASTNode *node) {
     switch (node->kind) {
     case NODE_RETURN: {
         std::string v = emit_expr(p, node->data.ret.expr);
-        terminator(p, "ret i32 " + v);
+        // main returns i32 (crt0's contract) while the language word is
+        // i64, so its return value gets narrowed first.
+        if (p.in_main) {
+            std::string t = fresh_tmp(p);
+            inst(p, t + " = trunc i64 " + v + " to i32");
+            terminator(p, "ret i32 " + t);
+        } else {
+            terminator(p, "ret i64 " + v);
+        }
         return;
     }
 
@@ -212,7 +222,7 @@ static void emit_stmt(Printer &p, ASTNode *node) {
         std::string a = emit_alloca(p, node->data.var_decl.name);
         if (node->data.var_decl.init) {
             std::string v = emit_expr(p, node->data.var_decl.init);
-            inst(p, "store i32 " + v + ", ptr " + a + ", align 4");
+            inst(p, "store i64 " + v + ", ptr " + a + ", align 8");
         }
         return;
     }
@@ -220,7 +230,7 @@ static void emit_stmt(Printer &p, ASTNode *node) {
     case NODE_ASSIGN: {
         std::string a = sym_lookup(p, node->data.assign.name);
         std::string v = emit_expr(p, node->data.assign.value);
-        inst(p, "store i32 " + v + ", ptr " + a + ", align 4");
+        inst(p, "store i64 " + v + ", ptr " + a + ", align 8");
         return;
     }
 
@@ -325,11 +335,13 @@ static void emit_function(Printer &p, ASTNode *fn) {
     p.addr = 0;
     p.label = 0;
     p.syms.clear();
+    p.in_main = std::string(fn->data.func.name) == "main";
 
-    p.out += "define i32 @" + std::string(fn->data.func.name) + "(";
+    p.out += "define " + std::string(p.in_main ? "i32" : "i64")
+           + " @" + std::string(fn->data.func.name) + "(";
     for (int j = 0; j < fn->data.func.param_count; j++) {
         if (j) p.out += ", ";
-        p.out += "i32 %" + std::string(fn->data.func.params[j].name);
+        p.out += "i64 %" + std::string(fn->data.func.params[j].name);
     }
     p.out += ") {\n";
     label(p, "entry");
@@ -339,7 +351,7 @@ static void emit_function(Printer &p, ASTNode *fn) {
     for (int j = 0; j < fn->data.func.param_count; j++) {
         const char *name = fn->data.func.params[j].name;
         std::string a = emit_alloca(p, name);
-        inst(p, "store i32 %" + std::string(name) + ", ptr " + a + ", align 4");
+        inst(p, "store i64 %" + std::string(name) + ", ptr " + a + ", align 8");
     }
 
     emit_stmt(p, fn->data.func.body);
@@ -347,7 +359,8 @@ static void emit_function(Printer &p, ASTNode *fn) {
     // Control flow can fall off the end (e.g. an empty ifmerge after both
     // branches returned). codegen leaves that block open; we close it so
     // the output always assembles.
-    if (!p.terminated) terminator(p, "ret i32 0");
+    if (!p.terminated)
+        terminator(p, p.in_main ? "ret i32 0" : "ret i64 0");
 
     p.out += "}\n";
 }
@@ -359,9 +372,9 @@ std::string irprint_module(ASTNode *ast) {
 
     Printer p;
     p.out += "; ModuleID = 'main'\n";
-    p.out += "declare i32 @print_int(i32)\n";
-    p.out += "declare i32 @print_bool(i32)\n";
-    p.out += "declare i32 @print_char(i32)\n";
+    p.out += "declare i64 @print_int(i64)\n";
+    p.out += "declare i64 @print_bool(i64)\n";
+    p.out += "declare i64 @print_char(i64)\n";
 
     for (int i = 0; i < ast->data.program.count; i++) {
         p.out += "\n";

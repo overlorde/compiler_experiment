@@ -57,9 +57,9 @@ static void sym_add(SymStack &st, const char *name, AllocaInst *a) {
     st.push_back({name, a});
 }
 
-// The i1 -> i32 widening shows up in every comparison / logical / unary-not.
-static Value *zext_i1_to_i32(IRBuilder<> &b, Value *v, const char *name) {
-    return b.CreateZExt(v, b.getInt32Ty(), name);
+// The i1 -> i64 widening shows up in every comparison / logical / unary-not.
+static Value *zext_i1_to_i64(IRBuilder<> &b, Value *v, const char *name) {
+    return b.CreateZExt(v, b.getInt64Ty(), name);
 }
 
 static Value *gen_expr(IRBuilder<> &b, Module &mod, SymStack &st, ASTNode *node);
@@ -69,9 +69,9 @@ static Value *gen_unary(IRBuilder<> &b, Value *operand, UnaryOp op) {
     case OP_NEG:
         return b.CreateNeg(operand, "neg");
     case OP_NOT: {
-        // !x  ==  (x == 0); widen the i1 result back to i32.
-        Value *cmp = b.CreateICmpEQ(operand, b.getInt32(0), "not");
-        return zext_i1_to_i32(b, cmp, "not_ext");
+        // !x  ==  (x == 0); widen the i1 result back to i64.
+        Value *cmp = b.CreateICmpEQ(operand, b.getInt64(0), "not");
+        return zext_i1_to_i64(b, cmp, "not_ext");
     }
     case OP_BITNOT:
         return b.CreateNot(operand, "bitnot");
@@ -100,23 +100,23 @@ static Value *gen_binop(IRBuilder<> &b, Value *l, Value *r, BinaryOp op) {
         case OP_NEQ: cmp = b.CreateICmpNE (l, r, "cmp"); break;
         default: assert(false); break;
         }
-        return zext_i1_to_i32(b, cmp, "cmp_ext");
+        return zext_i1_to_i64(b, cmp, "cmp_ext");
     }
 
     case OP_AND: {
         // Bitwise AND of (l != 0) and (r != 0), widened back. Matches the
         // C version exactly -- this is *not* short-circuit; both sides have
         // already been evaluated by gen_expr.
-        Value *lb = b.CreateICmpNE(l, b.getInt32(0), "l_bool");
-        Value *rb = b.CreateICmpNE(r, b.getInt32(0), "r_bool");
+        Value *lb = b.CreateICmpNE(l, b.getInt64(0), "l_bool");
+        Value *rb = b.CreateICmpNE(r, b.getInt64(0), "r_bool");
         Value *res = b.CreateAnd(lb, rb, "and");
-        return zext_i1_to_i32(b, res, "and_ext");
+        return zext_i1_to_i64(b, res, "and_ext");
     }
     case OP_OR: {
-        Value *lb = b.CreateICmpNE(l, b.getInt32(0), "l_bool");
-        Value *rb = b.CreateICmpNE(r, b.getInt32(0), "r_bool");
+        Value *lb = b.CreateICmpNE(l, b.getInt64(0), "l_bool");
+        Value *rb = b.CreateICmpNE(r, b.getInt64(0), "r_bool");
         Value *res = b.CreateOr(lb, rb, "or");
-        return zext_i1_to_i32(b, res, "or_ext");
+        return zext_i1_to_i64(b, res, "or_ext");
     }
     }
     assert(false && "gen_binop: unknown BinaryOp");
@@ -127,9 +127,9 @@ static Value *gen_expr(IRBuilder<> &b, Module &mod, SymStack &st, ASTNode *node)
     assert(node);
     switch (node->kind) {
     case NODE_INT_LIT:
-        return b.getInt32(node->data.int_lit.value);
+        return b.getInt64(node->data.int_lit.value);
     case NODE_CHAR_LIT:
-        return b.getInt32(node->data.char_lit.value);
+        return b.getInt64(node->data.char_lit.value);
 
     case NODE_UNARY_OP: {
         Value *operand = gen_expr(b, mod, st, node->data.unary.operand);
@@ -150,7 +150,7 @@ static Value *gen_expr(IRBuilder<> &b, Module &mod, SymStack &st, ASTNode *node)
         // Typechecker already verified the binding -- a miss is a compiler bug.
         assert(a && "codegen: var ref unbound after typecheck");
         // Opaque pointers (LLVM 15+): the load needs the element type explicitly.
-        return b.CreateLoad(b.getInt32Ty(), a, node->data.var_ref.name);
+        return b.CreateLoad(b.getInt64Ty(), a, node->data.var_ref.name);
     }
 
     case NODE_CALL: {
@@ -180,9 +180,9 @@ static bool block_has_terminator(IRBuilder<> &b) {
     return b.GetInsertBlock()->getTerminator() != nullptr;
 }
 
-// Build an i1 from an i32 condition (cond != 0).
+// Build an i1 from an i64 condition (cond != 0).
 static Value *cond_to_i1(IRBuilder<> &b, Value *v, const char *name) {
-    return b.CreateICmpNE(v, b.getInt32(0), name);
+    return b.CreateICmpNE(v, b.getInt64(0), name);
 }
 
 static int gen_stmt(IRBuilder<> &b, Module &mod, SymStack &st, ASTNode *node);
@@ -205,13 +205,18 @@ static int gen_stmt(IRBuilder<> &b, Module &mod, SymStack &st, ASTNode *node) {
     case NODE_RETURN: {
         Value *v = gen_expr(b, mod, st, node->data.ret.expr);
         if (!v) return 1;
+        // main returns i32 (crt0's contract) while the language word is
+        // i64, so its return value gets narrowed here.
+        llvm::Type *ret_ty = b.GetInsertBlock()->getParent()->getReturnType();
+        if (v->getType() != ret_ty)
+            v = b.CreateTrunc(v, ret_ty, "ret_trunc");
         b.CreateRet(v);
         return 0;
     }
 
     case NODE_VAR_DECL: {
         assert(node->data.var_decl.name);
-        AllocaInst *a = b.CreateAlloca(b.getInt32Ty(), nullptr,
+        AllocaInst *a = b.CreateAlloca(b.getInt64Ty(), nullptr,
                                        node->data.var_decl.name);
         sym_add(st, node->data.var_decl.name, a);
         if (node->data.var_decl.init) {
@@ -404,15 +409,18 @@ int codegen(ASTNode *ast, const char *output_path, CodegenOptions *opts) {
     // Note: using llvm::Type explicitly because types.h's project-level `Type`
     // (the typechecker's notion of a source-language type) collides with
     // llvm::Type (the IR type) under `using namespace llvm`.
-    llvm::Type *i32 = llvm::Type::getInt32Ty(ctx);
+    // `word` is the one machine type every source type erases to. i32
+    // survives only for main's return, which is crt0's contract, not ours.
+    llvm::Type *word = llvm::Type::getInt64Ty(ctx);
+    llvm::Type *i32  = llvm::Type::getInt32Ty(ctx);
 
-    // Pass 1a: declare the runtime built-ins. Bodies live in runtime/runtime.c,
+    // Pass 1a: declare the runtime built-ins. Bodies live in runtime/,
     // resolved at link time.
     {
-        FunctionType *i32_to_i32 = FunctionType::get(i32, {i32}, /*isVarArg=*/false);
-        Function::Create(i32_to_i32, Function::ExternalLinkage, "print_int",  module.get());
-        Function::Create(i32_to_i32, Function::ExternalLinkage, "print_bool", module.get());
-        Function::Create(i32_to_i32, Function::ExternalLinkage, "print_char", module.get());
+        FunctionType *word_to_word = FunctionType::get(word, {word}, /*isVarArg=*/false);
+        Function::Create(word_to_word, Function::ExternalLinkage, "print_int",  module.get());
+        Function::Create(word_to_word, Function::ExternalLinkage, "print_bool", module.get());
+        Function::Create(word_to_word, Function::ExternalLinkage, "print_char", module.get());
     }
 
     int func_count = ast->data.program.count;
@@ -422,8 +430,10 @@ int codegen(ASTNode *ast, const char *output_path, CodegenOptions *opts) {
     // regardless of source order.
     for (int i = 0; i < func_count; i++) {
         ASTNode *fn = functions[i];
-        std::vector<llvm::Type *> param_types(fn->data.func.param_count, i32);
-        FunctionType *ft = FunctionType::get(i32, param_types, /*isVarArg=*/false);
+        std::vector<llvm::Type *> param_types(fn->data.func.param_count, word);
+        bool is_main = std::strcmp(fn->data.func.name, "main") == 0;
+        FunctionType *ft = FunctionType::get(is_main ? i32 : word,
+                                             param_types, /*isVarArg=*/false);
         Function::Create(ft, Function::ExternalLinkage, fn->data.func.name, module.get());
     }
 
@@ -442,7 +452,7 @@ int codegen(ASTNode *ast, const char *output_path, CodegenOptions *opts) {
         // the body can load/store, same shape as locals.
         for (int j = 0; j < fn->data.func.param_count; j++) {
             Value *param = func->getArg(j);
-            AllocaInst *a = builder.CreateAlloca(i32, nullptr,
+            AllocaInst *a = builder.CreateAlloca(word, nullptr,
                                                  fn->data.func.params[j].name);
             builder.CreateStore(param, a);
             sym_add(st, fn->data.func.params[j].name, a);
