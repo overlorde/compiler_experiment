@@ -3,10 +3,10 @@
 # Regression test harness for compiler_experiment.
 #
 # Layout (uniform: each test is two files, no third sidecar):
-#   tests/pass/<name>.c          source snippet
+#   tests/pass/<name>.ce         source snippet (ce, the language this compiles)
 #   tests/pass/<name>.expected   exact stdout the program must produce
 #
-#   tests/fail/<name>.c          source snippet that must NOT typecheck
+#   tests/fail/<name>.ce         source snippet that must NOT typecheck
 #   tests/fail/<name>.expected   extended regex matched against stderr
 #
 # Pass test:
@@ -37,11 +37,11 @@ if [[ ! -f "$RUNTIME" ]]; then
 fi
 
 # -------------------------------------------------------------------------
-# run_pass <src.c>
+# run_pass <src.ce>
 # -------------------------------------------------------------------------
 run_pass() {
     local src=$1
-    local expected="${src%.c}.expected"
+    local expected="${src%.ce}.expected"
     local name="${src#tests/}"
 
     if [[ ! -f "$expected" ]]; then
@@ -121,11 +121,11 @@ run_pass() {
 }
 
 # -------------------------------------------------------------------------
-# run_fail <src.c>
+# run_fail <src.ce>
 # -------------------------------------------------------------------------
 run_fail() {
     local src=$1
-    local expected="${src%.c}.expected"
+    local expected="${src%.ce}.expected"
     local name="${src#tests/}"
 
     if [[ ! -f "$expected" ]]; then
@@ -164,8 +164,8 @@ run_fail() {
 # walk both directories
 # -------------------------------------------------------------------------
 shopt -s nullglob
-for f in tests/pass/*.c; do run_pass "$f"; done
-for f in tests/fail/*.c; do run_fail "$f"; done
+for f in tests/pass/*.ce; do run_pass "$f"; done
+for f in tests/fail/*.ce; do run_fail "$f"; done
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed, out of $((PASS + FAIL)) tests"

@@ -62,7 +62,7 @@ clean:
 test: $(TARGET) $(RUNTIME_LIB)
 	@bash tests/run_tests.sh
 
-# Usage: make run FILE=tests/pass/add.c
+# Usage: make run FILE=tests/pass/add.ce
 # Link with clang++ so libstdc++ (needed by the C++ runtime) comes in.
 # User object must come BEFORE the archive: ar members only resolve
 # symbols already requested by earlier objects.

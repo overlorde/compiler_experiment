@@ -17,10 +17,12 @@
     "C_Cpp.autocomplete": "disabled",
     "C_Cpp.errorSquiggles": "disabled",
 
-    // Headers are C++. Test inputs (tests/**/*.c) are programs in OUR
-    // language, not C -- leave them as plain C highlighting, close enough.
+    // Headers are C++. *.ce files are programs in ce (our language) --
+    // C highlighting is close enough for its C-flavored syntax, but clangd
+    // must not try to diagnose them.
     "files.associations": {
-        "*.h": "cpp"
+        "*.h": "cpp",
+        "*.ce": "c"
     },
 
     // Make sure clangd notices when we regenerate compile_commands.json.

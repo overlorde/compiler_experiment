@@ -1,14 +1,16 @@
 # compiler_experiment
 
-A small C-like compiler I'm writing in C, as a learning project. The front end is hand-written (lexer, recursive-descent parser, tagged-union AST), and the back end emits LLVM IR through the LLVM-C API (LLVM 18), which clang then turns into a native binary.
+A compiler for **ce**, a small language of my own, written in C++ as a learning project. ce borrows C's surface syntax but is not C — it's strictly nominally typed (no truthiness, no char/int punning, `bool` is not an integer) with phantom-typed pointers. The front end is hand-written (lexer, recursive-descent parser, tagged-union AST), and the back end emits LLVM IR through the LLVM C++ API (LLVM 18), which clang then turns into a native binary. Source files use the `.ce` extension.
 
 This is not meant to be a serious language. It's a place for me to actually implement type-system ideas instead of just reading about them. The long-term goal is for the typing rules to be the interesting part of the codebase, with the supporting infrastructure (scoping, codegen, the runtime boundary) boring and out of the way.
 
 ## What works today
 
-The language has functions with parameters, `int`, `bool`, `number` and `char` types, the usual arithmetic, comparison and logical operators, `if`/`while`/`for`, nested blocks, returns, and calls. Subtyping is in: `Int` is a subtype of `Number`, and the subsumption check is threaded through one helper so every typing rule respects it without needing a special case.
+The language has functions with parameters, `int`, `bool`, `number`, `char` and `ptr<T>` types, the usual arithmetic, comparison and logical operators, `if`/`while`/`for`, nested blocks, returns, and calls. Subtyping is in: `int` is a subtype of `number`, and the subsumption check is threaded through one helper so every typing rule respects it without needing a special case.
 
-All types lower to a 32-bit integer in LLVM. Characters, booleans, pointers, integers — the typechecker keeps them apart, codegen treats them uniformly. The idea is to do as much work as possible at compile time so the emitted code stays trivial.
+Heap memory works through four runtime primitives — `alloc`, `load`, `store`, `offset` — with phantom-typed pointers on top: `ptr<int>` and `ptr<char>` are distinct types to the checker and the same bare word at runtime, so `load` on a `ptr<int>` gives back an `int` and storing the wrong element type is a compile error. Bounds are deliberately unchecked (the C road, chosen knowingly).
+
+All types lower to a 64-bit integer in LLVM. Characters, booleans, pointers, integers — the typechecker keeps them apart, codegen treats them uniformly. The idea is to do as much work as possible at compile time so the emitted code stays trivial.
 
 Codegen itself is intentionally naive. Every local is a stack allocation, every variable access is a load and a store. I rely on LLVM's `mem2reg` pass to turn those allocations into SSA registers, which is what makes the rest of the standard `-O1` pipeline (instruction combining, GVN, control-flow simplification, register allocation) actually do useful work downstream.
 
@@ -24,25 +26,25 @@ The checker is one switch over `NodeKind` where each case lines up with a typing
 
 ## What's next
 
-I'm currently working on making the runtime more capable: a raw allocation primitive, a `Ptr<T>` type, indexed read/write, and in-language allocators. After that, one concrete object kind end-to-end (a `box`), then arrays.
+The memory substrate is done: allocation, typed pointers, indexed read/write via `offset`. Phantom types are in.
 
-The type-system work I actually want to do — phantom types, region-based deallocation in the Tofte–Talpin style so the source language never needs a manual `free`, ADTs with pattern matching, Hindley-Milner — comes after that, once there's a real substrate for it to operate on.
+The remaining type-system work: Hindley-Milner inference, ADTs with pattern matching (which will bring real records and arrays), and region-based deallocation in the Tofte–Talpin style so the source language never needs a manual `free`.
 
 ## Building
 
 ```
 make          # build the compiler
-make test     # run the regression suite (83 tests, pass + fail)
-./build/cc path/to/program.c
+make test     # run the regression suite (pass + fail + differential IR)
+./build/cc path/to/program.ce
 ```
 
-The test suite is bash-driven: each test is a `.c` file plus an `.expected` file (stdout for pass tests, an error-message regex for fail tests). It's the thing I lean on hardest when changing the typechecker or codegen.
+The test suite is bash-driven: each test is a `.ce` file plus an `.expected` file (stdout for pass tests, an error-message regex for fail tests). It's the thing I lean on hardest when changing the typechecker or codegen.
 
 ## Layout
 
 ```
 src/        the compiler
-runtime/    the C runtime linked into compiled programs
+runtime/    the runtime linked into compiled programs (C++, extern "C")
 tests/      regression suite
 writing/    notes, including the cover-letter writeup
 ```
