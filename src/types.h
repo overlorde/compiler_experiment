@@ -16,7 +16,8 @@ typedef enum {
     TYPE_INT,
     TYPE_BOOL,
     TYPE_NUMBER,
-    TYPE_CHAR
+    TYPE_CHAR,
+    TYPE_PTR      /* a heap address; erases to the same i64 word as the rest */
     /* grow here: TYPE_FUN, user-defined types, ... */
 } TypeKind;
 
@@ -30,6 +31,7 @@ Type *type_int(void);
 Type *type_bool(void);
 Type *type_number(void);
 Type *type_char(void);
+Type *type_ptr(void);
 
 /* Type equality. For primitives this is just a kind match; it will recurse
    once structured types exist. */

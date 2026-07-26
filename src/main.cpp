@@ -155,6 +155,7 @@ int main(int argc, char **argv) {
     symtab_add(&type_env, "bool", type_bool());
     symtab_add(&type_env, "number", type_number());
     symtab_add(&type_env, "char", type_char());
+    symtab_add(&type_env, "ptr",  type_ptr());
 
     /* Seed func_env with built-in externs (print_int, print_bool). Their bodies
      * live in runtime/runtime.c and are resolved at link time. */

@@ -69,6 +69,7 @@ extern "C" const char *ce_compile(const char *source) {
     symtab_add(&type_env, "bool",   type_bool());
     symtab_add(&type_env, "number", type_number());
     symtab_add(&type_env, "char",   type_char());
+    symtab_add(&type_env, "ptr",    type_ptr());
 
     typecheck_register_builtins(&func_env);
     scopes_build(ast, &var_env, NULL);

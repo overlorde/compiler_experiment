@@ -18,6 +18,7 @@ typedef enum {
     TOK_KW_BOOL,       /* "bool" */
     TOK_KW_NUMBER,       /* "number" */
     TOK_KW_CHAR,       /* "char" */
+    TOK_KW_PTR,        /* "ptr" */
     TOK_KW_RETURN,     /* "return" */
     TOK_IDENT,         /* identifiers */
     TOK_LPAREN,        /* ( */

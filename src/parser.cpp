@@ -34,10 +34,11 @@ static ASTNode *tag(ASTNode *node, int line) {
     return node;
 }
 
-/* Is the current token the start of a type? (int | bool | number | char) */
+/* Is the current token the start of a type? (int | bool | number | char | ptr) */
 static int check_type_start(Parser *p) {
     return check(p, TOK_KW_INT) || check(p, TOK_KW_BOOL)
-        || check(p, TOK_KW_NUMBER) || check(p, TOK_KW_CHAR);
+        || check(p, TOK_KW_NUMBER) || check(p, TOK_KW_CHAR)
+        || check(p, TOK_KW_PTR);
 }
 
 /* type → "int" | "bool". Consumes the keyword and returns the singleton Type;
@@ -47,6 +48,7 @@ static Type *parse_type(Parser *p) {
     if (check(p, TOK_KW_BOOL)) { advance(p); return type_bool(); }
     if (check(p, TOK_KW_NUMBER)) { advance(p); return type_number(); }
     if (check(p, TOK_KW_CHAR)) { advance(p); return type_char(); }
+    if (check(p, TOK_KW_PTR))  { advance(p); return type_ptr();  }
     error_at(p->current.line, "expected type, got '%s'",
              token_kind_name(p->current.kind));
     return NULL;
