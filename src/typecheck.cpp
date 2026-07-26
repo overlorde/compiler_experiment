@@ -112,6 +112,22 @@ static Type *check_expr(SymTab *scope, ASTNode *e) {
     /*  HM, phase 3 -- subsumes them). Bare `ptr` reads/writes int, which  */
     /*  keeps pre-phantom programs checking unchanged.                     */
     case NODE_CALL: {
+        /*  Γ ⊢ n : int                                                    */
+        /*  ─────────────────────────  (alloc)                             */
+        /*  Γ ⊢ alloc<τ>(n) : ptr<τ>                                       */
+        /*                                                                 */
+        /*  The element type is an explicit argument because nothing here  */
+        /*  can infer it (that's HM's job later). Without <τ> the result   */
+        /*  is bare ptr -- usable with the int-typed load/store, but not   */
+        /*  convertible to any ptr<T>: subtyping only forgets pointees,    */
+        /*  never invents them.                                            */
+        if (strcmp(e->data.call.name, "alloc") == 0
+            && e->data.call.arg_count == 1) {
+            Type *nt = check_expr(scope, e->data.call.args[0]);
+            expect(nt, type_int(), e->line, "argument");
+            return e->data.call.type_arg ? type_ptr_of(e->data.call.type_arg)
+                                         : type_ptr();
+        }
         if (strcmp(e->data.call.name, "load") == 0
             && e->data.call.arg_count == 1) {
             Type *pt = check_expr(scope, e->data.call.args[0]);

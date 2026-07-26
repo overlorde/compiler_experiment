@@ -1,8 +1,8 @@
 int main() {
-    ptr<int> inner = alloc(8);
+    ptr<int> inner = alloc<int>(8);
     store(inner, 7);
 
-    ptr<ptr<int>> outer = alloc(8);
+    ptr<ptr<int>> outer = alloc<ptr<int>>(8);
     store(outer, inner);
 
     ptr<int> back = load(outer);

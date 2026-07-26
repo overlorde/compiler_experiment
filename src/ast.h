@@ -96,8 +96,9 @@ struct ASTNode {
         /* NODE_FOR — for (init; cond; post) body */
         struct { ASTNode *init; ASTNode *cond; ASTNode *post; ASTNode *body; } for_stmt;
 
-        /* NODE_CALL — func(args) */
-        struct { char *name; ASTNode **args; int arg_count; } call;
+        /* NODE_CALL — func(args), or alloc<type>(args): type_arg carries the
+           explicit element type on alloc calls, NULL everywhere else. */
+        struct { char *name; ASTNode **args; int arg_count; Type *type_arg; } call;
 
         /* NODE_PROGRAM — top-level list of functions */
         struct { ASTNode **functions; int count; } program;

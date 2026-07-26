@@ -1,5 +1,5 @@
 int main() {
-    ptr<char> p = alloc(8);
+    ptr<char> p = alloc<char>(8);
     store(p, 5);
     return 0;
 }

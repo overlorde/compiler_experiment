@@ -101,6 +101,27 @@ static ASTNode *parse_primary_inner(Parser *p) {
         name[p->current.length] = '\0';
         advance(p);
 
+        /* alloc<type>(n): the one call that takes an explicit type argument
+           (its element type -- there's no inference to deduce it yet). Only
+           recognized on the literal name `alloc` so that `x < y` stays a
+           comparison for every other identifier. */
+        Type *type_arg = NULL;
+        if (check(p, TOK_LT) && strcmp(name, "alloc") == 0) {
+            advance(p);
+            type_arg = parse_type(p);
+            if (!type_arg) { free(name); return NULL; }
+            if (!check(p, TOK_GT)) {
+                error_at(p->current.line, "expected '>' to close alloc<...>, got '%s'",
+                         token_kind_name(p->current.kind));
+                free(name); return NULL;
+            }
+            advance(p);
+            if (!check(p, TOK_LPAREN)) {
+                error_at(p->current.line, "expected '(' after alloc<...>");
+                free(name); return NULL;
+            }
+        }
+
         /* function call: IDENT "(" arg_list? ")" */
         if (check(p, TOK_LPAREN)) {
             advance(p);
@@ -130,7 +151,9 @@ static ASTNode *parse_primary_inner(Parser *p) {
                 for (int i = 0; i < count; i++) ast_free(args[i]);
                 free(args); free(name); return NULL;
             }
-            return ast_call(name, args, count);
+            ASTNode *c = ast_call(name, args, count);
+            if (c) c->data.call.type_arg = type_arg;
+            return c;
         }
 
         return ast_var_ref(name);

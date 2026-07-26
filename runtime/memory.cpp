@@ -9,16 +9,25 @@
  * keeps these callable from stdlib only. Nothing frees — reclamation is
  * Phase 4's region analysis, not a runtime concern.
  */
+#include <cinttypes>
+#include <cstdio>
 #include <cstdlib>
 
 #include "runtime.h"
 
 extern "C" {
 
-/* Returns the address of a fresh n-byte block, or 0 if the system
- * allocator refuses — the language-level null. */
+/* Returns the address of a fresh n-byte block. Never returns null: if the
+ * system allocator refuses, abort loudly. That makes non-null a runtime
+ * guarantee the language can rely on -- no 0-checks in user code -- until
+ * option types (ADTs) can express allocation failure honestly. */
 int64_t alloc(int64_t n) {
-    return reinterpret_cast<int64_t>(std::malloc(static_cast<size_t>(n)));
+    void *p = std::malloc(static_cast<size_t>(n));
+    if (!p) {
+        std::fprintf(stderr, "runtime: alloc(%" PRId64 ") failed\n", n);
+        std::abort();
+    }
+    return reinterpret_cast<int64_t>(p);
 }
 
 int64_t load(int64_t p) {

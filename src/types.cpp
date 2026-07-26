@@ -74,12 +74,13 @@ int type_subtype(const Type *a, const Type *b) {
         return 1;
     }
 
-    /* Bare ptr converts to and from any ptr<T> -- the void* of the
-       language, and the escape hatch that keeps alloc's monomorphic
-       `int -> ptr` signature usable until real polymorphism (HM) lands.
-       ptr<A> vs ptr<B> with A != B falls through to 0: no variance. */
+    /* One direction only: forgetting the pointee is safe (ptr<T> <: ptr),
+       inventing one is not. The old both-ways rule was a laundering hole --
+       ptr<int> -> ptr -> ptr<char> in two legal assignments. Typed pointers
+       now enter the world solely through alloc<T>. ptr<A> vs ptr<B> with
+       A != B falls through to 0: no variance. */
     if (a->kind == TYPE_PTR && b->kind == TYPE_PTR
-        && (!a->param || !b->param)) {
+        && a->param && !b->param) {
         return 1;
     }
     return 0;

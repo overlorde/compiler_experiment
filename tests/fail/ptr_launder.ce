@@ -1,0 +1,6 @@
+int main() {
+    ptr<int> p = alloc<int>(8);
+    ptr raw = p;
+    ptr<char> q = raw;
+    return 0;
+}

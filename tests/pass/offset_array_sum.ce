@@ -1,5 +1,5 @@
 int main() {
-    ptr<int> a = alloc(40);
+    ptr<int> a = alloc<int>(40);
     int i = 0;
     while (i < 5) {
         store(offset(a, i), i * i);
