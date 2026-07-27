@@ -40,15 +40,18 @@ wasm: | $(BUILD_DIR)
 $(TARGET): $(OBJS)
 	$(CXX) $(OBJS) -o $@ $(LDFLAGS)
 
+# -MMD -MP: emit a .d file per object listing every header it includes, so
+# editing a header rebuilds exactly the objects that saw it. Without this,
+# a struct change in types.h left stale .o files reading old field offsets.
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
 # Runtime: linked into programs the compiler produces, NOT into cc itself.
 # No LLVM headers needed, so it skips CXXFLAGS' llvm-config baggage.
 # One object per runtime/*.cpp, bundled into an archive so the link
 # interface stays a single artifact however many files runtime/ grows to.
-$(BUILD_DIR)/runtime/%.o: $(RUNTIME_DIR)/%.cpp $(RUNTIME_DIR)/runtime.h | $(BUILD_DIR)/runtime
-	$(CXX) -Wall -Wextra -std=c++17 -c $< -o $@
+$(BUILD_DIR)/runtime/%.o: $(RUNTIME_DIR)/%.cpp | $(BUILD_DIR)/runtime
+	$(CXX) -Wall -Wextra -std=c++17 -MMD -MP -c $< -o $@
 
 $(RUNTIME_LIB): $(RUNTIME_OBJS)
 	ar rcs $@ $^
@@ -58,6 +61,9 @@ $(BUILD_DIR) $(BUILD_DIR)/runtime:
 
 clean:
 	rm -rf $(BUILD_DIR)
+
+# Pull in the compiler-generated header dependencies (absent on first build).
+-include $(OBJS:.o=.d) $(RUNTIME_OBJS:.o=.d)
 
 test: $(TARGET) $(RUNTIME_LIB)
 	@bash tests/run_tests.sh
