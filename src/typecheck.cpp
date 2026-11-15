@@ -130,7 +130,7 @@ static Type *check_expr(SymTab *scope, ASTNode *e) {
         }
         if (strcmp(e->data.call.name, "load") == 0
             && e->data.call.arg_count == 1) {
-            Type *pt = check_expr(scope, e->data.call.args[0]);
+            Type *pt = type_resolve(check_expr(scope, e->data.call.args[0]));
             expect(pt, type_ptr(), e->line, "argument");
             if (pt && pt->kind == TYPE_PTR && pt->param)
                 return pt->param;
@@ -138,7 +138,7 @@ static Type *check_expr(SymTab *scope, ASTNode *e) {
         }
         if (strcmp(e->data.call.name, "store") == 0
             && e->data.call.arg_count == 2) {
-            Type *pt = check_expr(scope, e->data.call.args[0]);
+            Type *pt = type_resolve(check_expr(scope, e->data.call.args[0]));
             expect(pt, type_ptr(), e->line, "argument");
             Type *elem = (pt && pt->kind == TYPE_PTR && pt->param)
                        ? pt->param : type_int();
@@ -158,7 +158,7 @@ static Type *check_expr(SymTab *scope, ASTNode *e) {
         /*  explicit design choice (the C road).                           */
         if (strcmp(e->data.call.name, "offset") == 0
             && e->data.call.arg_count == 2) {
-            Type *pt = check_expr(scope, e->data.call.args[0]);
+            Type *pt = type_resolve(check_expr(scope, e->data.call.args[0]));
             expect(pt, type_ptr(), e->line, "argument");
             Type *it = check_expr(scope, e->data.call.args[1]);
             expect(it, type_int(), e->line, "argument");

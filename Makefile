@@ -18,6 +18,7 @@ TARGET       := $(BUILD_DIR)/cc
 RUNTIME_SRCS := $(wildcard $(RUNTIME_DIR)/*.cpp)
 RUNTIME_OBJS := $(patsubst $(RUNTIME_DIR)/%.cpp,$(BUILD_DIR)/runtime/%.o,$(RUNTIME_SRCS))
 RUNTIME_LIB  := $(BUILD_DIR)/libruntime.a
+TYPE_TEST    := $(BUILD_DIR)/types_test
 
 # Wasm build: the whole frontend + the textual IR printer, no LLVM.
 # codegen.cpp (needs libLLVM) and main.cpp (CLI) are excluded;
@@ -65,7 +66,11 @@ clean:
 # Pull in the compiler-generated header dependencies (absent on first build).
 -include $(OBJS:.o=.d) $(RUNTIME_OBJS:.o=.d)
 
-test: $(TARGET) $(RUNTIME_LIB)
+$(TYPE_TEST): tests/types_test.cpp $(SRC_DIR)/types.cpp $(SRC_DIR)/types.h | $(BUILD_DIR)
+	$(CXX) -Wall -Wextra -g -std=c++17 -I$(SRC_DIR) tests/types_test.cpp $(SRC_DIR)/types.cpp -o $@
+
+test: $(TARGET) $(RUNTIME_LIB) $(TYPE_TEST)
+	@$(TYPE_TEST)
 	@bash tests/run_tests.sh
 
 # Usage: make run FILE=tests/pass/add.ce

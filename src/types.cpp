@@ -2,15 +2,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
+#include <unordered_set>
 
 #include "types.h"
 
 /* Primitive types live as singletons -- shared, never allocated or freed. */
-static Type t_int  = { TYPE_INT,    NULL, NULL };
-static Type t_bool = { TYPE_BOOL,   NULL, NULL };
-static Type t_number = { TYPE_NUMBER, NULL, NULL };
-static Type t_char = { TYPE_CHAR,   NULL, NULL };
-static Type t_ptr  = { TYPE_PTR,    NULL, NULL };   /* bare ptr, no pointee */
+static Type t_int    = { TYPE_INT,    NULL, 0, NULL, NULL };
+static Type t_bool   = { TYPE_BOOL,   NULL, 0, NULL, NULL };
+static Type t_number = { TYPE_NUMBER, NULL, 0, NULL, NULL };
+static Type t_char   = { TYPE_CHAR,   NULL, 0, NULL, NULL };
+static Type t_ptr    = { TYPE_PTR,    NULL, 0, NULL, NULL }; /* bare ptr */
 
 Type *type_int(void)  { return &t_int; }
 Type *type_bool(void) { return &t_bool; }
@@ -18,9 +20,21 @@ Type *type_number(void) { return &t_number; }
 Type *type_char(void) { return &t_char; }
 Type *type_ptr(void)  { return &t_ptr; }
 
-/* ptr<elem> nodes are interned: one node per distinct pointee, kept forever,
-   so the same spelling always yields the same Type* and the display name is
-   built exactly once. The table only ever grows -- types are never freed. */
+Type *type_resolve(Type *t) {
+    while (t && t->kind == TYPE_VAR && t->link)
+        t = t->link;
+    return t;
+}
+
+const Type *type_resolve(const Type *t) {
+    while (t && t->kind == TYPE_VAR && t->link)
+        t = t->link;
+    return t;
+}
+
+/* Constructor identity must stay stable when variables acquire links. Keep
+   one node per original element node, rather than using semantic equality.
+   The table only ever grows -- types are never freed. */
 static Type **ptr_cache = NULL;
 static int    ptr_cache_count = 0;
 static int    ptr_cache_cap = 0;
@@ -28,7 +42,7 @@ static int    ptr_cache_cap = 0;
 Type *type_ptr_of(Type *elem) {
     assert(elem);
     for (int i = 0; i < ptr_cache_count; i++)
-        if (type_equals(ptr_cache[i]->param, elem))
+        if (ptr_cache[i]->param == elem)
             return ptr_cache[i];
 
     if (ptr_cache_count == ptr_cache_cap) {
@@ -36,7 +50,7 @@ Type *type_ptr_of(Type *elem) {
         ptr_cache = (Type **)realloc(ptr_cache, ptr_cache_cap * sizeof *ptr_cache);
     }
 
-    Type *t = (Type *)malloc(sizeof *t);
+    Type *t = (Type *)calloc(1, sizeof *t);
     t->kind = TYPE_PTR;
     t->param = elem;
 
@@ -50,27 +64,61 @@ Type *type_ptr_of(Type *elem) {
     return t;
 }
 
+static Type **var_registry = NULL;
+static int var_registry_count = 0;
+static int var_registry_cap = 0;
+static int next_var_id = 0;
+
+Type *type_fresh_var(void) {
+    if (var_registry_count == var_registry_cap) {
+        var_registry_cap = var_registry_cap ? var_registry_cap * 2 : 8;
+        var_registry = (Type **)realloc(var_registry, var_registry_cap * sizeof *var_registry);
+    }
+
+    Type *t = (Type *)calloc(1, sizeof *t);
+    t->kind = TYPE_VAR;
+    t->var_id = next_var_id++;
+
+    char *name  = (char *)malloc(16);
+    snprintf(name, 16, "t%d", t->var_id);
+    t->display = name;
+
+    var_registry[var_registry_count++] = t;
+    return t;
+}
+
 int type_equals(const Type *a, const Type *b) {
     if (!a || !b) return 0;
+    a = type_resolve(a);
+    b = type_resolve(b);
+    if (a == b) return 1;
     if (a->kind != b->kind) return 0;
-    if (a->kind == TYPE_PTR) {
+    switch (a->kind) {
+    case TYPE_VAR:
+        return 0; /* distinct unresolved variables are independent unknowns */
+    case TYPE_PTR:
         /* Bare ptr equals only bare ptr; parameterized compares pointees. */
         if (!a->param || !b->param) return a->param == b->param;
         return type_equals(a->param, b->param);
+    case TYPE_INT: case TYPE_BOOL: case TYPE_NUMBER: case TYPE_CHAR:
+        return 1;
     }
-    return 1;   /* primitives: same kind == same type */
+    assert(0 && "type_equals: unhandled TypeKind");
+    return 0;
 }
 
 
 int type_subtype(const Type *a, const Type *b) {
     assert(a);
     assert(b);
+    a = type_resolve(a);
+    b = type_resolve(b);
 
-    if(type_equals(a, b)){
+    if (type_equals(a, b)) {
         return 1;
     }
 
-    if(a->kind == TYPE_INT && b->kind == TYPE_NUMBER){
+    if (a->kind == TYPE_INT && b->kind == TYPE_NUMBER) {
         return 1;
     }
 
@@ -88,7 +136,15 @@ int type_subtype(const Type *a, const Type *b) {
 
 
 const char *type_name(const Type *t) {
+    t = type_resolve(t);
     if (!t) return "<unknown>";
+    if (t->kind == TYPE_PTR && t->param) {
+        /* Never reuse the construction-time spelling: element variables may
+           now be solved. Interned strings survive rehashes and later renders. */
+        static std::unordered_set<std::string> names;
+        std::string name = std::string("ptr<") + type_name(t->param) + ">";
+        return names.insert(name).first->c_str();
+    }
     if (t->display) return t->display;
     switch (t->kind) {
         case TYPE_INT:  return "int";
@@ -96,6 +152,7 @@ const char *type_name(const Type *t) {
         case TYPE_NUMBER: return "number";
         case TYPE_CHAR: return "char";
         case TYPE_PTR:  return "ptr";
+        case TYPE_VAR: return "t?";
     }
     assert(0 && "type_name: unhandled TypeKind");
     return "<?>";
