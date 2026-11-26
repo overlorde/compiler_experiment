@@ -1,0 +1,2 @@
+make() { let p=alloc(16); store(offset(p,1),42); return offset(p,1); }
+main() { let p=make(); print_int(load(p)); return 0; }

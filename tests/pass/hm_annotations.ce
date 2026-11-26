@@ -1,0 +1,3 @@
+auto same(auto x) { return x; }
+main() { ptr<auto> p = alloc(8); store(p, 42); number n = same(4);
+    print_int(same(load(p))); print_bool(same(false)); return 0; }

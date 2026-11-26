@@ -1,0 +1,3 @@
+first(n, x) { if (n == 0) return x; return second(n - 1, x); }
+second(n, x) { if (n == 0) return x; return first(n - 1, x); }
+main() { print_int(first(8, 42)); print_char(second(7, 'C')); return 0; }

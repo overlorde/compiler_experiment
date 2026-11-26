@@ -38,12 +38,13 @@ static ASTNode *tag(ASTNode *node, int line) {
 static int check_type_start(Parser *p) {
     return check(p, TOK_KW_INT) || check(p, TOK_KW_BOOL)
         || check(p, TOK_KW_NUMBER) || check(p, TOK_KW_CHAR)
-        || check(p, TOK_KW_PTR);
+        || check(p, TOK_KW_PTR) || check(p, TOK_KW_AUTO);
 }
 
 /* type → "int" | "bool". Consumes the keyword and returns the singleton Type;
    reports an error and returns NULL on anything else. */
 static Type *parse_type(Parser *p) {
+    if (check(p, TOK_KW_AUTO)) { advance(p); return type_fresh_var(); }
     if (check(p, TOK_KW_INT))  { advance(p); return type_int();  }
     if (check(p, TOK_KW_BOOL)) { advance(p); return type_bool(); }
     if (check(p, TOK_KW_NUMBER)) { advance(p); return type_number(); }
@@ -85,6 +86,11 @@ static ASTNode *parse_primary(Parser *p) {
 }
 
 static ASTNode *parse_primary_inner(Parser *p) {
+    if (check(p, TOK_KW_TRUE) || check(p, TOK_KW_FALSE)) {
+        int value = check(p, TOK_KW_TRUE);
+        advance(p);
+        return ast_bool_lit(value);
+    }
     if (check(p, TOK_INT_LIT)) {
         int value = p->current.data.int_value;
         advance(p);
@@ -101,8 +107,7 @@ static ASTNode *parse_primary_inner(Parser *p) {
         name[p->current.length] = '\0';
         advance(p);
 
-        /* alloc<type>(n): the one call that takes an explicit type argument
-           (its element type -- there's no inference to deduce it yet). Only
+        /* alloc<type>(n): optional explicit element type. Only
            recognized on the literal name `alloc` so that `x < y` stays a
            comparison for every other identifier. */
         Type *type_arg = NULL;
@@ -306,6 +311,15 @@ static ASTNode *parse_statement(Parser *p) {
     return tag(parse_statement_inner(p), line);
 }
 
+/* A control-flow body has its own lexical scope even without braces. */
+static ASTNode *parse_body(Parser *p) {
+    ASTNode *body = parse_statement(p);
+    if (!body || body->kind == NODE_BLOCK) return body;
+    ASTNode **stmts = (ASTNode **)malloc(sizeof *stmts);
+    stmts[0] = body;
+    return tag(ast_block(stmts, 1), body->line);
+}
+
 static ASTNode *parse_statement_inner(Parser *p) {
     /* return expr; */
     if (check(p, TOK_KW_RETURN)) {
@@ -317,8 +331,11 @@ static ASTNode *parse_statement_inner(Parser *p) {
     }
 
     /* (int|bool) IDENT (= expr)?; */
-    if (check_type_start(p)) {
-        Type *ty = parse_type(p);
+    if (check_type_start(p) || check(p, TOK_KW_LET)) {
+        bool is_let = check(p, TOK_KW_LET);
+        Type *ty;
+        if (is_let) { advance(p); ty = type_fresh_var(); }
+        else ty = parse_type(p);
         if (!ty) return NULL;
         if (!check(p, TOK_IDENT)) {
             error_at(p->current.line, "expected variable name after type");
@@ -330,6 +347,11 @@ static ASTNode *parse_statement_inner(Parser *p) {
         advance(p);
 
         ASTNode *init = NULL;
+        if (is_let && !check(p, TOK_ASSIGN)) {
+            error_at(p->current.line, "let declaration requires an initializer");
+            free(name);
+            return NULL;
+        }
         if (check(p, TOK_ASSIGN)) {
             advance(p);
             init = parse_expression(p);
@@ -350,12 +372,12 @@ static ASTNode *parse_statement_inner(Parser *p) {
         ASTNode *cond = parse_expression(p);
         if (!cond) return NULL;
         if (!expect(p, TOK_RPAREN)) { ast_free(cond); return NULL; }
-        ASTNode *then_body = parse_statement(p);
+        ASTNode *then_body = parse_body(p);
         if (!then_body) { ast_free(cond); return NULL; }
         ASTNode *else_body = NULL;
         if (check(p, TOK_KW_ELSE)) {
             advance(p);
-            else_body = parse_statement(p);
+            else_body = parse_body(p);
             if (!else_body) { ast_free(cond); ast_free(then_body); return NULL; }
         }
         return ast_if(cond, then_body, else_body);
@@ -368,7 +390,7 @@ static ASTNode *parse_statement_inner(Parser *p) {
         ASTNode *cond = parse_expression(p);
         if (!cond) return NULL;
         if (!expect(p, TOK_RPAREN)) { ast_free(cond); return NULL; }
-        ASTNode *body = parse_statement(p);
+        ASTNode *body = parse_body(p);
         if (!body) { ast_free(cond); return NULL; }
         return ast_while(cond, body);
     }
@@ -380,8 +402,10 @@ static ASTNode *parse_statement_inner(Parser *p) {
 
         /* init: (int|bool) IDENT "=" expr | expr | empty */
         ASTNode *init = NULL;
-        if (check_type_start(p)) {
-            Type *ty = parse_type(p);
+        if (check_type_start(p) || check(p, TOK_KW_LET)) {
+            Type *ty;
+            if (check(p, TOK_KW_LET)) { advance(p); ty = type_fresh_var(); }
+            else ty = parse_type(p);
             if (!ty) return NULL;
             if (!check(p, TOK_IDENT)) {
                 error_at(p->current.line, "expected variable name after type");
@@ -434,7 +458,7 @@ static ASTNode *parse_statement_inner(Parser *p) {
         }
         if (!expect(p, TOK_RPAREN)) { ast_free(init); ast_free(cond); ast_free(post); return NULL; }
 
-        ASTNode *body = parse_statement(p);
+        ASTNode *body = parse_body(p);
         if (!body) { ast_free(init); ast_free(cond); ast_free(post); return NULL; }
         return ast_for(init, cond, post, body);
     }
@@ -509,7 +533,8 @@ static ASTNode *parse_block(Parser *p) {
  * A function with just a declaration (no body) is treated as a forward decl and skipped.
  */
 static ASTNode *parse_function(Parser *p) {
-    Type *ret_type = parse_type(p);
+    int line = p->current.line;
+    Type *ret_type = check(p, TOK_IDENT) ? type_fresh_var() : parse_type(p);
     if (!ret_type) return NULL;
 
     if (!check(p, TOK_IDENT)) {
@@ -529,8 +554,8 @@ static ASTNode *parse_function(Parser *p) {
     int param_count = 0;
     Param *params = (Param *)malloc(param_cap * sizeof(Param));
 
-    if (check_type_start(p)) {
-        Type *pty = parse_type(p);
+    if (!check(p, TOK_RPAREN)) {
+        Type *pty = check(p, TOK_IDENT) ? type_fresh_var() : parse_type(p);
         if (!pty) { free(func_name); free(params); return NULL; }
         if (!check(p, TOK_IDENT)) {
             error_at(p->current.line, "expected parameter name");
@@ -544,7 +569,7 @@ static ASTNode *parse_function(Parser *p) {
 
         while (check(p, TOK_COMMA)) {
             advance(p);
-            Type *ty = parse_type(p);
+            Type *ty = check(p, TOK_IDENT) ? type_fresh_var() : parse_type(p);
             if (!ty) { free(func_name); free(params); return NULL; }
             if (!check(p, TOK_IDENT)) {
                 error_at(p->current.line, "expected parameter name");
@@ -576,7 +601,7 @@ static ASTNode *parse_function(Parser *p) {
     ASTNode *body = parse_block(p);
     if (!body) { free(func_name); free(params); return NULL; }
 
-    return ast_function(ret_type, func_name, params, param_count, body);
+    return tag(ast_function(ret_type, func_name, params, param_count, body), line);
 }
 
 void parser_init(Parser *parser, const char *source) {

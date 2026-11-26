@@ -1,0 +1,2 @@
+put(p, x) { store(p, x); return 0; }
+main() { let p = alloc<int>(8); put(p, 'A'); return 0; }

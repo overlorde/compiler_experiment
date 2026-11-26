@@ -1,6 +1,8 @@
 #ifndef TYPES_H
 #define TYPES_H
 
+#include <vector>
+
 /*
  * Type representation for the type checker.
  *
@@ -45,7 +47,7 @@ Type *type_fresh_var(void);
 /* Follow variable links without mutation or path compression. NULL stays
    NULL; concrete types and unresolved variables return themselves. This
    resolves only the root, not pointer elements. Types must be acyclic through
-   links and pointer parameters; the future unifier must enforce that invariant. */
+   links and pointer parameters; type_unify preserves that invariant. */
 Type *type_resolve(Type *t);
 const Type *type_resolve(const Type *t);
 
@@ -60,12 +62,39 @@ Type *type_ptr_of(Type *elem);
    Equality neither binds variables nor applies subtype conversions. */
 int type_equals(const Type *a, const Type *b);
 
+typedef enum {
+    TYPE_UNIFY_OK = 0,
+    TYPE_UNIFY_MISMATCH, /* incompatible concrete types or pointer shapes */
+    TYPE_UNIFY_OCCURS,   /* binding would create a recursive type */
+    TYPE_UNIFY_INVALID,  /* a NULL operand */
+} TypeUnifyResult;
+
+/* Solve an equality constraint, linking unresolved variables as necessary.
+   Both input graphs must be acyclic. The occurs check prevents new cycles.
+   Success makes type_equals(a, b) true; failure leaves all links unchanged.
+   Earlier successful calls are not rolled back. This does not apply subtype
+   conversions: int/number and ptr<T>/bare ptr are unification mismatches.
+   No diagnostics are emitted; callers decide how to report the result. */
+TypeUnifyResult type_unify(Type *a, Type *b);
+
 /* Subtyping after resolution; both inputs must be non-NULL. */
 int type_subtype(const Type *a, const Type *b);
 
 /* Current name after resolution, including pointer elements. Returned text
    remains valid for the process lifetime, even when other names are rendered. */
 const char *type_name(const Type *t);
+
+/* A first-order function signature stores its parameters followed by its
+   result. Quantified variables are copied consistently at every use; other
+   variables remain shared with the environment. Locals never carry schemes. */
+struct TypeScheme {
+    std::vector<Type *> types;
+    std::vector<Type *> quantified;
+};
+std::vector<Type *> type_free_vars(const std::vector<Type *> &types);
+TypeScheme type_generalize(const std::vector<Type *> &types,
+                          const std::vector<Type *> &environment);
+std::vector<Type *> type_instantiate(const TypeScheme &scheme);
 
 /*
  * A variable's entry in the type environment (the value stored in the symtab).

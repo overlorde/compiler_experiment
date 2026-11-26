@@ -1,0 +1,2 @@
+work(n) { let p=alloc(8); store(p,n + 0); return load(p); }
+main() { let sum=0; for(let i=0;i<1000;i=i+1) sum=sum+work(i); print_int(sum); return 0; }

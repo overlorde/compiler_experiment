@@ -1,0 +1,2 @@
+cycle(p) { store(p, p); return 0; }
+main() { return 0; }

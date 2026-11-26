@@ -1,4 +1,1 @@
-int main() {
-    ptr<int> p = alloc(8);
-    return 0;
-}
+int main() { ptr raw = alloc(8); ptr<int> p = raw; return 0; }

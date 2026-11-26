@@ -1,0 +1,4 @@
+make(x) { let p=alloc(8); store(p,x); return p; }
+wrap(x) { return make(x); }
+work(x) { let p=wrap(x); return load(p); }
+main() { print_int(work(42)); print_char(work('A')); return 0; }

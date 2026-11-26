@@ -1,0 +1,10 @@
+identity(x) { return x; }
+main() {
+    print_int(identity(42));
+    print_bool(identity(true));
+    print_char(identity('A'));
+    let p = alloc(8);
+    store(identity(p), 7);
+    print_int(load(p));
+    return 0;
+}

@@ -131,7 +131,15 @@ Token lexer_next(Lexer *lexer) {
             lexer->current++;
         tok.length = lexer->current - tok.start;
 
-        if (tok.length == 3 && strncmp(tok.start, "int", 3) == 0)
+        if (tok.length == 4 && strncmp(tok.start, "true", 4) == 0)
+            tok.kind = TOK_KW_TRUE;
+        else if (tok.length == 5 && strncmp(tok.start, "false", 5) == 0)
+            tok.kind = TOK_KW_FALSE;
+        else if (tok.length == 4 && strncmp(tok.start, "auto", 4) == 0)
+            tok.kind = TOK_KW_AUTO;
+        else if (tok.length == 3 && strncmp(tok.start, "let", 3) == 0)
+            tok.kind = TOK_KW_LET;
+        else if (tok.length == 3 && strncmp(tok.start, "int", 3) == 0)
             tok.kind = TOK_KW_INT;
         else if (tok.length == 4 && strncmp(tok.start, "bool", 4) == 0)
             tok.kind = TOK_KW_BOOL;
@@ -178,6 +186,10 @@ const char *token_kind_name(TokenKind kind) {
         case TOK_EOF:       return "EOF";
         case TOK_INT_LIT:   return "INT_LIT";
         case TOK_CHAR_LIT:  return "CHAR_LIT";
+        case TOK_KW_TRUE:   return "true";
+        case TOK_KW_FALSE:  return "false";
+        case TOK_KW_AUTO:   return "auto";
+        case TOK_KW_LET:    return "let";
         case TOK_KW_INT:    return "int";
         case TOK_KW_BOOL:   return "bool";
         case TOK_KW_NUMBER: return "number";

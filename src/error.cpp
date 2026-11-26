@@ -2,6 +2,7 @@
 #include <stdio.h>
 
 #include "error.h"
+#include "types.h"
 
 static int errors = 0;
 
@@ -13,6 +14,21 @@ static void stderr_sink(void *userdata, const char *msg) {
 
 static ErrorSink sink = stderr_sink;
 static void *sink_userdata = NULL;
+static DiagnosticSink diagnostic_sink = NULL;
+static void *diagnostic_userdata = NULL;
+
+void error_set_diagnostic_sink(DiagnosticSink s, void *userdata) {
+    diagnostic_sink = s;
+    diagnostic_userdata = userdata;
+}
+
+void error_type_mismatch(int line, const char *context,
+                         const Type *expected, const Type *actual) {
+    Diagnostic diagnostic = {DIAGNOSTIC_TYPE_MISMATCH, line, context, expected, actual};
+    if (diagnostic_sink) diagnostic_sink(diagnostic_userdata, &diagnostic);
+    error_at(line, "%s: expected %s, got %s", context,
+             type_name(expected), type_name(actual));
+}
 
 void error_set_sink(ErrorSink s, void *userdata) {
     sink = s ? s : stderr_sink;

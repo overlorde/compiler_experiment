@@ -1,0 +1,27 @@
+{
+  "id": "D1-v1",
+  "kind": "deterministic synthetic feasibility pilot",
+  "templates": 20,
+  "worlds_per_template": 16,
+  "modes": ["full", "redacted", "generic", "projected"],
+  "cells": 1280,
+  "controls": ["valid", "parse_error", "unstructured_error", "escaping"],
+  "control_cells": 1024,
+  "strata": {
+    "metadata": "Five error contexts, each scalar/pointer; private display labels change but semantics do not.",
+    "contracts": "Five calling contexts, each scalar/pointer; four imported argument types encode a private four-bit contract."
+  },
+  "primary_endpoint": "Initial fixed-query diagnostic distinctions between private-world pairs sharing the same public interface and verdict.",
+  "adaptive_endpoint": "Public-model bit probes identify a four-bit contract using verdicts; all queries and visible replies are logged.",
+  "repair_endpoint": "Fixed finite candidate enumeration uses identical public interface knowledge and only explicit returned constraints to prune.",
+  "query_budget_checkpoints": [1, 2, 4, 8, 20],
+  "seed": "ce-d1-v1-fixed",
+  "timing": "Wall-clock subprocess timings are recorded descriptively, not interpreted as timing confidentiality or causal performance evidence.",
+  "decision_rules": [
+    "Report oracle-only disclosure separately from extra diagnostic distinctions.",
+    "Treat any private-label exposure in projected views or metadata-world distinction as failed conformance.",
+    "Report equivalent redaction/projection behavior rather than assuming projection superiority.",
+    "Do not generalize finite fixture equivalence to arbitrary inputs or hostile process execution.",
+    "No inference about LLM repair usefulness or deployment incidence."
+  ]
+}

@@ -2,6 +2,7 @@
 #define AST_H
 
 #include "types.h"
+#include <functional>
 
 /* The type checker hangs a scope (symbol table) off function and block nodes so
  * it can find "the environment for this node" in O(1) when it walks the tree a
@@ -19,6 +20,7 @@ struct SymTab;
 typedef enum {
     NODE_INT_LIT,
     NODE_CHAR_LIT,
+    NODE_BOOL_LIT,
     NODE_BINARY_OP,
     NODE_UNARY_OP,
     NODE_RETURN,
@@ -53,6 +55,7 @@ typedef struct ASTNode ASTNode;
 struct ASTNode {
     NodeKind kind;
     int line;            /* 1-based source line; 0 if unknown */
+    Type *inferred_type; /* expressions: checker result, read by region analysis */
     union {
         /* NODE_INT_LIT */
         struct { int value; } int_lit;
@@ -70,7 +73,7 @@ struct ASTNode {
         struct { ASTNode *expr; } ret;
 
         /* NODE_FUNCTION */
-        struct { Type *ret_type; const char *name; Param *params; int param_count; ASTNode *body; struct SymTab *scope; } func;
+        struct { Type *ret_type; const char *name; Param *params; int param_count; ASTNode *body; struct SymTab *scope; int region_policy; } func;
 
         /* NODE_VAR_DECL — int x (= expr)?; */
         struct { Type *type; char *name; ASTNode *init; } var_decl;
@@ -94,7 +97,7 @@ struct ASTNode {
         struct { ASTNode *cond; ASTNode *body; } while_stmt;
 
         /* NODE_FOR — for (init; cond; post) body */
-        struct { ASTNode *init; ASTNode *cond; ASTNode *post; ASTNode *body; } for_stmt;
+        struct { ASTNode *init; ASTNode *cond; ASTNode *post; ASTNode *body; struct SymTab *scope; } for_stmt;
 
         /* NODE_CALL — func(args), or alloc<type>(args): type_arg carries the
            explicit element type on alloc calls, NULL everywhere else. */
@@ -108,6 +111,7 @@ struct ASTNode {
 /* Constructors — allocate and return a new node */
 ASTNode *ast_int_lit(int value);
 ASTNode *ast_char_lit(int value);
+ASTNode *ast_bool_lit(int value);
 ASTNode *ast_binary_op(BinaryOp op, ASTNode *left, ASTNode *right);
 ASTNode *ast_unary_op(UnaryOp op, ASTNode *operand);
 ASTNode *ast_return(ASTNode *expr);
@@ -128,5 +132,8 @@ void ast_print(ASTNode *node, int indent);
 
 /* Free an AST tree */
 void ast_free(ASTNode *node);
+
+/* Preorder traversal of syntax children, excluding scopes and type graphs. */
+void ast_walk(ASTNode *node, const std::function<void(ASTNode *)> &visit);
 
 #endif

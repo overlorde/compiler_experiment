@@ -1,0 +1,2 @@
+main() { auto sum = 0; for (let i = 0; i < 5; i = i + 1) sum = sum + i;
+    print_int(sum); for (; false;) print_int(99); return 0; }

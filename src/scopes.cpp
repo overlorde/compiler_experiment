@@ -66,10 +66,14 @@ void scopes_build(ASTNode *n, SymTab *env, SymTab *pending) {
             scopes_build(n->data.while_stmt.body, env, NULL);
             break;
 
-        case NODE_FOR:
-            scopes_build(n->data.for_stmt.init, env, NULL);
-            scopes_build(n->data.for_stmt.body, env, NULL);
+        case NODE_FOR: {
+            SymTab *scope = (SymTab *)malloc(sizeof *scope);
+            symtab_init(scope, env);
+            n->data.for_stmt.scope = scope;
+            scopes_build(n->data.for_stmt.init, scope, NULL);
+            scopes_build(n->data.for_stmt.body, scope, NULL);
             break;
+        }
 
         default:
             break;

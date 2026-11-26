@@ -4,6 +4,7 @@
 #include <string.h>
 #include <string>
 #include <unordered_set>
+#include <unordered_map>
 
 #include "types.h"
 
@@ -107,6 +108,56 @@ int type_equals(const Type *a, const Type *b) {
     return 0;
 }
 
+/* Pointer types have one child, so both structural descent and variable-link
+   traversal can be iterative. Resolve every child to catch indirect cycles,
+   such as a = ptr<b> followed by b = ptr<a>. */
+static int type_occurs(const Type *variable, const Type *t) {
+    t = type_resolve(t);
+    while (t) {
+        if (t == variable) return 1;
+        if (t->kind != TYPE_PTR) return 0;
+        t = type_resolve(t->param);
+    }
+    return 0;
+}
+
+TypeUnifyResult type_unify(Type *a, Type *b) {
+    if (!a || !b) return TYPE_UNIFY_INVALID;
+    /* With unary pointer structure, descent reaches one terminal constraint.
+       Write its link only after validation, so a failed call changes nothing. */
+    for (;;) {
+        a = type_resolve(a);
+        b = type_resolve(b);
+        if (a == b) return TYPE_UNIFY_OK;
+
+        if (a->kind == TYPE_VAR) {
+            if (type_occurs(a, b)) return TYPE_UNIFY_OCCURS;
+            a->link = b;
+            return TYPE_UNIFY_OK;
+        }
+        if (b->kind == TYPE_VAR) {
+            if (type_occurs(b, a)) return TYPE_UNIFY_OCCURS;
+            b->link = a;
+            return TYPE_UNIFY_OK;
+        }
+
+        if (a->kind != b->kind) return TYPE_UNIFY_MISMATCH;
+        switch (a->kind) {
+        case TYPE_PTR:
+            if (!a->param || !b->param)
+                return a->param == b->param ? TYPE_UNIFY_OK : TYPE_UNIFY_MISMATCH;
+            a = a->param;
+            b = b->param;
+            break;
+        case TYPE_INT: case TYPE_BOOL: case TYPE_NUMBER: case TYPE_CHAR:
+            return TYPE_UNIFY_OK;
+        case TYPE_VAR:
+            assert(0 && "type_unify: unresolved variable already handled");
+            return TYPE_UNIFY_INVALID;
+        }
+    }
+}
+
 
 int type_subtype(const Type *a, const Type *b) {
     assert(a);
@@ -156,4 +207,47 @@ const char *type_name(const Type *t) {
     }
     assert(0 && "type_name: unhandled TypeKind");
     return "<?>";
+}
+
+std::vector<Type *> type_free_vars(const std::vector<Type *> &types) {
+    std::vector<Type *> result;
+    std::unordered_set<Type *> seen;
+    for (Type *t : types) {
+        t = type_resolve(t);
+        while (t && seen.insert(t).second) {
+            if (t->kind == TYPE_VAR) result.push_back(t);
+            t = t->kind == TYPE_PTR ? type_resolve(t->param) : nullptr;
+        }
+    }
+    return result;
+}
+
+TypeScheme type_generalize(const std::vector<Type *> &types,
+                          const std::vector<Type *> &environment) {
+    auto free = type_free_vars(environment);
+    std::unordered_set<Type *> excluded(free.begin(), free.end());
+    TypeScheme scheme{types, {}};
+    for (Type *v : type_free_vars(types))
+        if (!excluded.count(v)) scheme.quantified.push_back(v);
+    return scheme;
+}
+
+std::vector<Type *> type_instantiate(const TypeScheme &scheme) {
+    std::unordered_map<Type *, Type *> copies;
+    for (Type *v : scheme.quantified) copies.emplace(v, type_fresh_var());
+    std::vector<Type *> result;
+    for (Type *t : scheme.types) {
+        std::vector<Type *> pointers;
+        t = type_resolve(t);
+        while (t && t->kind == TYPE_PTR && t->param) {
+            pointers.push_back(t);
+            t = type_resolve(t->param);
+        }
+        auto found = copies.find(t);
+        Type *copy = found == copies.end() ? t : found->second;
+        for (auto it = pointers.rbegin(); it != pointers.rend(); ++it)
+            copy = copy == (*it)->param ? *it : type_ptr_of(copy);
+        result.push_back(copy);
+    }
+    return result;
 }

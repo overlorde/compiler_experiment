@@ -255,12 +255,165 @@ static void test_names() {
     CHECK(a->link == b && b->link == type_char());
 }
 
+static void test_unification() {
+    CHECK(type_unify(nullptr, nullptr) == TYPE_UNIFY_INVALID);
+    Type *untouched = type_fresh_var();
+    CHECK(type_unify(untouched, nullptr) == TYPE_UNIFY_INVALID);
+    CHECK(type_unify(nullptr, untouched) == TYPE_UNIFY_INVALID);
+    CHECK(untouched->link == nullptr);
+    CHECK(type_unify(untouched, untouched) == TYPE_UNIFY_OK);
+    CHECK(untouched->link == nullptr);
+
+    Type *primitives[] = {type_int(), type_bool(), type_number(), type_char(), type_ptr()};
+    for (Type *a : primitives) {
+        for (Type *b : primitives) {
+            CHECK(type_unify(a, b) == (a == b ? TYPE_UNIFY_OK : TYPE_UNIFY_MISMATCH));
+            CHECK(a->link == nullptr && b->link == nullptr);
+        }
+        Type *left = type_fresh_var();
+        Type *right = type_fresh_var();
+        CHECK(type_unify(left, a) == TYPE_UNIFY_OK);
+        CHECK(type_unify(a, right) == TYPE_UNIFY_OK);
+        CHECK(type_resolve(left) == a && type_resolve(right) == a);
+        CHECK(type_equals(left, right));
+        CHECK(a->link == nullptr);
+    }
+    Type int_copy = *type_int();
+    Type bare_copy = *type_ptr();
+    CHECK(type_unify(&int_copy, type_int()) == TYPE_UNIFY_OK);
+    CHECK(type_unify(&bare_copy, type_ptr()) == TYPE_UNIFY_OK);
+
+    Type *a = type_fresh_var();
+    Type *b = type_fresh_var();
+    Type *c = type_fresh_var();
+    CHECK(type_unify(a, b) == TYPE_UNIFY_OK);
+    CHECK(type_unify(b, c) == TYPE_UNIFY_OK);
+    CHECK(type_unify(c, a) == TYPE_UNIFY_OK); // An alias is not a new cycle.
+    CHECK(a->link == b && b->link == c && c->link == nullptr);
+    CHECK(type_unify(c, type_int()) == TYPE_UNIFY_OK);
+    CHECK(type_equals(a, type_int()));
+    CHECK(type_unify(type_int(), a) == TYPE_UNIFY_OK);
+    CHECK(type_unify(a, type_bool()) == TYPE_UNIFY_MISMATCH);
+    CHECK(a->link == b && b->link == c && c->link == type_int());
+
+    Type *elem = type_fresh_var();
+    Type *p = type_ptr_of(elem);
+    Type *pi = type_ptr_of(type_int());
+    CHECK(type_unify(type_ptr_of(p), type_ptr_of(pi)) == TYPE_UNIFY_OK);
+    CHECK(type_resolve(elem) == type_int());
+    CHECK(type_equals(p, pi));
+    CHECK(p->param == elem && type_ptr_of(elem) == p);
+    CHECK(type_unify(p, type_ptr_of(type_char())) == TYPE_UNIFY_MISMATCH);
+    CHECK(type_resolve(elem) == type_int());
+
+    Type *independent = type_fresh_var();
+    Type *pc = type_ptr_of(independent);
+    CHECK(type_unify(pc, type_ptr_of(type_char())) == TYPE_UNIFY_OK);
+    CHECK(type_resolve(independent) == type_char());
+    CHECK(!type_equals(p, pc));
+
+    Type *unknown_elem = type_fresh_var();
+    Type *unknown_ptr = type_ptr_of(unknown_elem);
+    CHECK(type_unify(type_ptr(), unknown_ptr) == TYPE_UNIFY_MISMATCH);
+    CHECK(type_unify(unknown_ptr, type_ptr()) == TYPE_UNIFY_MISMATCH);
+    CHECK(unknown_elem->link == nullptr);
+    CHECK(type_subtype(unknown_ptr, type_ptr()));
+    CHECK(type_unify(type_int(), type_number()) == TYPE_UNIFY_MISMATCH);
+    CHECK(type_unify(type_number(), type_int()) == TYPE_UNIFY_MISMATCH);
+    CHECK(type_subtype(type_int(), type_number()));
+    CHECK(type_unify(pi, type_ptr_of(type_number())) == TYPE_UNIFY_MISMATCH);
+}
+
+static void test_occurs_check() {
+    Type *a = type_fresh_var();
+    Type *pa = type_ptr_of(a);
+    CHECK(type_unify(a, pa) == TYPE_UNIFY_OCCURS);
+    CHECK(type_unify(pa, a) == TYPE_UNIFY_OCCURS);
+    CHECK(type_unify(a, type_ptr_of(pa)) == TYPE_UNIFY_OCCURS);
+    CHECK(a->link == nullptr && pa->param == a);
+
+    Type *alias = type_fresh_var();
+    CHECK(type_unify(a, alias) == TYPE_UNIFY_OK);
+    CHECK(type_unify(alias, pa) == TYPE_UNIFY_OCCURS);
+    CHECK(type_unify(type_ptr_of(alias), a) == TYPE_UNIFY_OCCURS);
+    CHECK(a->link == alias && alias->link == nullptr);
+    CHECK(type_unify(a, type_char()) == TYPE_UNIFY_OK); // Failure left it usable.
+    CHECK(type_equals(pa, type_ptr_of(type_char())));
+
+    Type *b = type_fresh_var();
+    Type *c = type_fresh_var();
+    Type *pb = type_ptr_of(b);
+    Type *pc = type_ptr_of(c);
+    CHECK(type_unify(b, pc) == TYPE_UNIFY_OK);
+    CHECK(type_unify(c, pb) == TYPE_UNIFY_OCCURS);
+    CHECK(type_unify(pb, c) == TYPE_UNIFY_OCCURS);
+    CHECK(b->link == pc && c->link == nullptr);
+    CHECK(type_unify(c, type_bool()) == TYPE_UNIFY_OK);
+    CHECK(std::strcmp(type_name(pb), "ptr<ptr<bool>>") == 0);
+
+    // Deep structures should not consume the C++ call stack in the solver.
+    Type *deep_elem = type_fresh_var();
+    std::vector<Type> left(10000), right(10000);
+    for (size_t i = 0; i < left.size(); ++i) {
+        left[i].kind = right[i].kind = TYPE_PTR;
+        left[i].param = i + 1 < left.size() ? &left[i + 1] : deep_elem;
+        right[i].param = i + 1 < right.size() ? &right[i + 1] : type_int();
+    }
+    CHECK(type_unify(deep_elem, &left.front()) == TYPE_UNIFY_OCCURS);
+    CHECK(deep_elem->link == nullptr);
+    CHECK(type_unify(&left.front(), &right.front()) == TYPE_UNIFY_OK);
+    CHECK(type_resolve(deep_elem) == type_int());
+    CHECK(type_unify(&right.front(), &left.front()) == TYPE_UNIFY_OK);
+    CHECK(type_unify(deep_elem, type_bool()) == TYPE_UNIFY_MISMATCH);
+}
+
+static void test_schemes() {
+    Type *a = type_fresh_var();
+    Type *captured = type_fresh_var();
+    auto scheme = type_generalize({type_ptr_of(a), a, captured}, {captured});
+    CHECK(scheme.quantified.size() == 1 && scheme.quantified[0] == a);
+    auto ints = type_instantiate(scheme);
+    auto chars = type_instantiate(scheme);
+    CHECK(ints.size() == 3 && chars.size() == 3);
+    CHECK(ints[2] == captured && chars[2] == captured);
+    CHECK(ints[1] != chars[1] && ints[1] != a);
+    CHECK(type_unify(ints[0], type_ptr_of(type_int())) == TYPE_UNIFY_OK);
+    CHECK(type_equals(ints[1], type_int()));
+    CHECK(type_unify(chars[1], type_char()) == TYPE_UNIFY_OK);
+    CHECK(type_equals(chars[0], type_ptr_of(type_char())));
+    CHECK(a->link == nullptr);
+    CHECK(type_unify(captured, type_bool()) == TYPE_UNIFY_OK);
+    CHECK(type_equals(ints[2], type_bool()) && type_equals(chars[2], type_bool()));
+
+    Type *alias = type_fresh_var();
+    CHECK(type_unify(alias, a) == TYPE_UNIFY_OK);
+    auto nested = type_generalize({type_ptr_of(type_ptr_of(alias)), a}, {});
+    CHECK(nested.quantified.size() == 1);
+    auto copy = type_instantiate(nested);
+    CHECK(type_unify(copy[1], type_int()) == TYPE_UNIFY_OK);
+    CHECK(type_equals(copy[0], type_ptr_of(type_ptr_of(type_int()))));
+    CHECK(a->link == nullptr);
+
+    auto mono = type_generalize({a, type_ptr_of(a)}, {type_ptr_of(a)});
+    CHECK(mono.quantified.empty());
+    auto shared = type_instantiate(mono);
+    CHECK(shared[0] == a);
+    CHECK(type_unify(shared[0], type_number()) == TYPE_UNIFY_OK);
+    CHECK(type_equals(shared[1], type_ptr_of(type_number())));
+    auto concrete = type_generalize({type_int(), type_ptr()}, {});
+    CHECK(concrete.quantified.empty());
+    CHECK(type_instantiate(concrete) == concrete.types);
+}
+
 int main() {
     test_resolution();
     test_equality();
     test_pointer_interning();
     test_subtyping();
     test_names();
+    test_unification();
+    test_occurs_check();
+    test_schemes();
     std::printf("Type tests: %d checks passed\n", checks);
     return 0;
 }

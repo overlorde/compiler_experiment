@@ -25,12 +25,17 @@ int64_t print_int(int64_t x);
 int64_t print_bool(int64_t x);
 int64_t print_char(int64_t x);
 
-/* Heap primitives (memory.cpp) — stdlib-only by typechecker decree:
- * the checker drops these from scope before looking at user code. */
+/* Typed heap primitives. The compiler infers/checks their phantom elements;
+ * the runtime tracks allocation regions and leaves bounds unchecked. */
 int64_t alloc(int64_t n);
 int64_t load(int64_t p);
 int64_t store(int64_t p, int64_t v);
 int64_t offset(int64_t p, int64_t i);   /* address of cell i: p + 8*i */
+
+/* Compiler-only region boundaries, emitted around every user function.
+   policy: 0 = local, 1 = caller allocation region, 2 = program root. */
+int64_t __ce_region_enter(int64_t policy);
+int64_t __ce_region_leave();
 
 } // extern "C"
 

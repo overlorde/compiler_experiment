@@ -1,10 +1,16 @@
 #include <assert.h>
 #include <stddef.h>   /* NULL */
 #include <string.h>   /* strcmp: load/store get their own judgments */
+#include <algorithm>
+#include <functional>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include "typecheck.h"
 #include "types.h"
 #include "error.h"
+#include "regions.h"
 
 /*
  * The "global" environments don't change as we descend into a function
@@ -15,27 +21,77 @@
 static SymTab *g_types;   /* unused for now: declared types are already Type* on the AST */
 static SymTab *g_funcs;
 static SymTab *g_ops;     /* unused until operator overloading */
+static std::unordered_map<ASTNode *, TypeScheme> schemes;
+/* Scopes are built in advance, but a local becomes visible only after its
+   initializer. The environment still retains the original Type* nodes. */
+static std::unordered_map<SymTab *, int> visible;
 
 /* Expressions synthesise a type (Γ ⊢ e : τ) and return it; statements just
  * check. A NULL Type means "an error was already reported here" -- callers
  * treat it as poison and must not pile on further errors (no cascades). */
 static Type *check_expr(SymTab *scope, ASTNode *e);
+static Type *check_expr_inner(SymTab *scope, ASTNode *e);
 static void  check_stmt(SymTab *scope, ASTNode *s, Type *ret_type);
 
 /* ---- helpers ---------------------------------------------------------- */
 
-/* Premise check: require `actual` to equal `expected`. A NULL `actual` means
- * a prior error already fired, so stay quiet. */
+/* Preserve explicit subtype conversions, otherwise solve the equality
+ * constraint. A NULL actual is poison from an already-reported error. */
 static void expect(Type *actual, Type *expected, int line, const char *what) {
-    assert(expected);   /* every premise has a known target type -- NULL is a checker bug */
+    assert(expected);   /* target may be an unknown, but must be a type node */
     assert(what);
-    if (actual && !type_subtype(actual, expected))
-        error_at(line, "%s: expected %s, got %s",
-                 what, type_name(expected), type_name(actual));
+    if (!actual || type_subtype(actual, expected)) return;
+    TypeUnifyResult result = type_unify(actual, expected);
+    if (result == TYPE_UNIFY_OCCURS)
+        error_at(line, "%s: infinite type (%s versus %s)", what,
+                 type_name(actual), type_name(expected));
+    else if (result != TYPE_UNIFY_OK)
+        error_type_mismatch(line, what, expected, actual);
+}
+
+static Type *lookup_local(SymTab *scope, const char *name) {
+    auto it = visible.find(scope);
+    int count = it == visible.end() ? scope->count : it->second;
+    for (int i = count - 1; i >= 0; --i)
+        if (strcmp(scope->entries[i].name, name) == 0)
+            return static_cast<Type *>(scope->entries[i].value);
+    return nullptr;
+}
+
+static Type *lookup(SymTab *scope, const char *name) {
+    for (; scope; scope = scope->parent)
+        if (Type *t = lookup_local(scope, name)) return t;
+    return nullptr;
+}
+
+static Type *pointer_element(Type *pt, int line) {
+    if (!pt) return nullptr;
+    pt = type_resolve(pt);
+    if (pt->kind == TYPE_VAR) {
+        Type *elem = type_fresh_var();
+        expect(pt, type_ptr_of(elem), line, "argument");
+        return elem;
+    }
+    expect(pt, type_ptr(), line, "argument");
+    return pt->kind == TYPE_PTR ? (pt->param ? pt->param : type_int()) : nullptr;
+}
+
+static std::vector<Type *> signature(ASTNode *fn) {
+    std::vector<Type *> types;
+    for (int i = 0; i < fn->data.func.param_count; ++i)
+        types.push_back(fn->data.func.params[i].type);
+    types.push_back(fn->data.func.ret_type);
+    return types;
 }
 
 /* ---- expressions:  Γ ⊢ e : τ  ---------------------------------------- */
 static Type *check_expr(SymTab *scope, ASTNode *e) {
+    if (!e) return nullptr;
+    e->inferred_type = check_expr_inner(scope, e);
+    return e->inferred_type;
+}
+
+static Type *check_expr_inner(SymTab *scope, ASTNode *e) {
     if (!e) return NULL;
     switch (e->kind) {
 
@@ -43,6 +99,8 @@ static Type *check_expr(SymTab *scope, ASTNode *e) {
     /*  Γ ⊢ n : int                                                       */
     case NODE_INT_LIT:
         return type_int();
+    case NODE_BOOL_LIT:
+        return type_bool();
 
     /*  ─────────────                                            (axiom)  */
     /*  Γ ⊢ 'c' : char                                                    */
@@ -53,7 +111,7 @@ static Type *check_expr(SymTab *scope, ASTNode *e) {
     /*  ────────                          (lookup; error if x unbound)    */
     /*  Γ ⊢ x : τ                                                         */
     case NODE_VAR_REF: {
-        Type *t = (Type *)symtab_lookup(scope, e->data.var_ref.name);
+        Type *t = lookup(scope, e->data.var_ref.name);
         if (!t) {
             error_at(e->line, "unbound variable '%s'", e->data.var_ref.name);
             return NULL;
@@ -106,44 +164,33 @@ static Type *check_expr(SymTab *scope, ASTNode *e) {
     /*  ────────────────  (load)      ─────────────────────────  (store)  */
     /*  Γ ⊢ load(p) : τ               Γ ⊢ store(p, v) : int               */
     /*                                                                     */
-    /*  The generic call rule below can't express a result type that       */
-    /*  depends on the argument's phantom parameter, so these two          */
-    /*  primitives get their own judgments (until real polymorphism --     */
-    /*  HM, phase 3 -- subsumes them). Bare `ptr` reads/writes int, which  */
-    /*  keeps pre-phantom programs checking unchanged.                     */
+    /* Memory primitives generate pointer constraints directly. Each call */
+    /* creates fresh element unknowns; aliases still share their solutions.*/
+    /* Explicit bare `ptr` retains its legacy integer load/store behavior. */
     case NODE_CALL: {
         /*  Γ ⊢ n : int                                                    */
         /*  ─────────────────────────  (alloc)                             */
         /*  Γ ⊢ alloc<τ>(n) : ptr<τ>                                       */
         /*                                                                 */
-        /*  The element type is an explicit argument because nothing here  */
-        /*  can infer it (that's HM's job later). Without <τ> the result   */
-        /*  is bare ptr -- usable with the int-typed load/store, but not   */
-        /*  convertible to any ptr<T>: subtyping only forgets pointees,    */
-        /*  never invents them.                                            */
+        /* Without <τ>, allocation creates ptr<fresh> and later constraints */
+        /* determine the element. Forgetting it through an explicit bare  */
+        /* ptr annotation still cannot invent a new element type later.   */
         if (strcmp(e->data.call.name, "alloc") == 0
             && e->data.call.arg_count == 1) {
             Type *nt = check_expr(scope, e->data.call.args[0]);
             expect(nt, type_int(), e->line, "argument");
             return e->data.call.type_arg ? type_ptr_of(e->data.call.type_arg)
-                                         : type_ptr();
+                                         : type_ptr_of(type_fresh_var());
         }
         if (strcmp(e->data.call.name, "load") == 0
             && e->data.call.arg_count == 1) {
-            Type *pt = type_resolve(check_expr(scope, e->data.call.args[0]));
-            expect(pt, type_ptr(), e->line, "argument");
-            if (pt && pt->kind == TYPE_PTR && pt->param)
-                return pt->param;
-            return type_int();
+            return pointer_element(check_expr(scope, e->data.call.args[0]), e->line);
         }
         if (strcmp(e->data.call.name, "store") == 0
             && e->data.call.arg_count == 2) {
-            Type *pt = type_resolve(check_expr(scope, e->data.call.args[0]));
-            expect(pt, type_ptr(), e->line, "argument");
-            Type *elem = (pt && pt->kind == TYPE_PTR && pt->param)
-                       ? pt->param : type_int();
+            Type *elem = pointer_element(check_expr(scope, e->data.call.args[0]), e->line);
             Type *vt = check_expr(scope, e->data.call.args[1]);
-            expect(vt, elem, e->line, "argument");
+            if (elem) expect(vt, elem, e->line, "argument");
             return type_int();
         }
 
@@ -158,11 +205,11 @@ static Type *check_expr(SymTab *scope, ASTNode *e) {
         /*  explicit design choice (the C road).                           */
         if (strcmp(e->data.call.name, "offset") == 0
             && e->data.call.arg_count == 2) {
-            Type *pt = type_resolve(check_expr(scope, e->data.call.args[0]));
-            expect(pt, type_ptr(), e->line, "argument");
+            Type *pt = check_expr(scope, e->data.call.args[0]);
+            Type *elem = pointer_element(pt, e->line);
             Type *it = check_expr(scope, e->data.call.args[1]);
             expect(it, type_int(), e->line, "argument");
-            return (pt && pt->kind == TYPE_PTR) ? pt : type_ptr();
+            return elem ? type_resolve(pt) : nullptr;
         }
 
         ASTNode *fn = (ASTNode *)symtab_lookup(g_funcs, e->data.call.name);
@@ -170,17 +217,23 @@ static Type *check_expr(SymTab *scope, ASTNode *e) {
             error_at(e->line, "unknown function '%s'", e->data.call.name);
             return NULL;
         }
+        if (strcmp(e->data.call.name, "main") == 0) {
+            error_at(e->line, "main cannot be called as a source function");
+            return nullptr;
+        }
         if (fn->data.func.param_count != e->data.call.arg_count) {
             error_at(e->line, "'%s': expected %d arg(s), got %d",
                      e->data.call.name,
                      fn->data.func.param_count, e->data.call.arg_count);
             return fn->data.func.ret_type;
         }
+        auto scheme = schemes.find(fn);
+        auto types = scheme == schemes.end() ? signature(fn) : type_instantiate(scheme->second);
         for (int i = 0; i < e->data.call.arg_count; i++) {
             Type *a = check_expr(scope, e->data.call.args[i]);
-            expect(a, fn->data.func.params[i].type, e->line, "argument");
+            expect(a, types[i], e->line, "argument");
         }
-        return fn->data.func.ret_type;
+        return types.back();
     }
 
     default:
@@ -201,11 +254,14 @@ static void check_stmt(SymTab *scope, ASTNode *s, Type *ret_type) {
             Type *t = check_expr(scope, s->data.var_decl.init);
             expect(t, s->data.var_decl.type, s->line, "initializer");
         }
+        if (lookup_local(scope, s->data.var_decl.name))
+            error_at(s->line, "redeclaration of '%s'", s->data.var_decl.name);
+        ++visible[scope];
         break;
 
     /*  x = e :  x must be bound; expect(type(e), type(x)).               */
     case NODE_ASSIGN: {
-        Type *lhs = (Type *)symtab_lookup(scope, s->data.assign.name);
+        Type *lhs = lookup(scope, s->data.assign.name);
         if (!lhs) {
             error_at(s->line, "assign to unbound '%s'", s->data.assign.name);
             break;
@@ -243,11 +299,13 @@ static void check_stmt(SymTab *scope, ASTNode *s, Type *ret_type) {
         break;
     }
     case NODE_FOR: {
-        check_stmt(scope, s->data.for_stmt.init, ret_type);
-        Type *c = check_expr(scope, s->data.for_stmt.cond);
+        SymTab *loop = s->data.for_stmt.scope;
+        visible[loop] = 0;
+        check_stmt(loop, s->data.for_stmt.init, ret_type);
+        Type *c = check_expr(loop, s->data.for_stmt.cond);
         expect(c, type_bool(), s->line, "for condition");
-        check_stmt(scope, s->data.for_stmt.post, ret_type);
-        check_stmt(scope, s->data.for_stmt.body, ret_type);
+        check_stmt(loop, s->data.for_stmt.body, ret_type);
+        check_stmt(loop, s->data.for_stmt.post, ret_type);
         break;
     }
 
@@ -255,11 +313,12 @@ static void check_stmt(SymTab *scope, ASTNode *s, Type *ret_type) {
         build attached to it and check each statement there. (Glue, not a rule.) */
     case NODE_BLOCK:
         assert(s->data.block.scope);   /* build() should have attached it */
+        if (s->data.block.scope != scope) visible[s->data.block.scope] = 0;
         for (int i = 0; i < s->data.block.count; i++)
             check_stmt(s->data.block.scope, s->data.block.stmts[i], ret_type);
         break;
 
-    default: break;
+    default: (void)check_expr(scope, s); break;
     }
 }
 
@@ -270,25 +329,109 @@ static void construct(ASTNode *program) {
        Done before pass 2 so calls resolve regardless of definition order. */
     for (int i = 0; i < program->data.program.count; i++) {
         ASTNode *fn = program->data.program.functions[i];
+        if (symtab_lookup(g_funcs, fn->data.func.name)) {
+            error_at(fn->line, "duplicate or reserved function '%s'", fn->data.func.name);
+            continue;
+        }
+        if (strncmp(fn->data.func.name, "__ce_", 5) == 0) {
+            error_at(fn->line, "reserved function name '%s'", fn->data.func.name);
+            continue;
+        }
+        if (g_funcs->count == SYMTAB_MAX) {
+            error_at(fn->line, "too many functions");
+            continue;
+        }
         symtab_add(g_funcs, fn->data.func.name, fn);
+        if (strcmp(fn->data.func.name, "main") == 0) {
+            if (fn->data.func.param_count != 0)
+                error_at(fn->line, "main must have no parameters");
+            expect(type_int(), fn->data.func.ret_type, fn->line, "main result");
+            if (!type_equals(fn->data.func.ret_type, type_int()))
+                error_at(fn->line, "main must return int");
+        }
     }
 }
 
-/* ---- pass 2: check each function body --------------------------------- */
+static bool returns(ASTNode *n) {
+    if (!n) return false;
+    if (n->kind == NODE_RETURN) return true;
+    if (n->kind == NODE_IF)
+        return returns(n->data.if_stmt.then_body) && returns(n->data.if_stmt.else_body);
+    if (n->kind == NODE_BLOCK)
+        for (int i = 0; i < n->data.block.count; ++i)
+            if (returns(n->data.block.stmts[i])) return true;
+    return false;
+}
+
+/* Tarjan emits dependency groups before their callers. Every edge inside a
+   recursive group uses the original monotypes; generalize only once all
+   bodies in that group have constrained their shared signatures. */
 static void check_functions(ASTNode *program, SymTab *var_env) {
-    /* `build` already constructed each function's scope (params + body locals)
-       and chained it off var_env, stashing it on fn->data.func.scope. So pass 2
-       just reads that scope and checks the body against the declared return type
-       -- no scope (re)construction happens in the checker. */
-    (void)var_env;   /* scopes were chained to it at build time */
-    for (int i = 0; i < program->data.program.count; i++) {
-        ASTNode *fn = program->data.program.functions[i];
-        assert(fn);
-        assert(fn->kind == NODE_FUNCTION);
-        assert(fn->data.func.scope);     /* build() invariant */
-        assert(fn->data.func.ret_type);  /* parser invariant */
-        check_stmt(fn->data.func.scope, fn->data.func.body, fn->data.func.ret_type);
-    }
+    int count = program->data.program.count;
+    ASTNode **functions = program->data.program.functions;
+    std::unordered_map<ASTNode *, int> indices;
+    for (int i = 0; i < count; ++i) indices[functions[i]] = i;
+    std::vector<std::vector<int>> edges(count);
+    for (int i = 0; i < count; ++i)
+        ast_walk(functions[i]->data.func.body, [&](ASTNode *n) {
+            if (n->kind != NODE_CALL) return;
+            auto found = indices.find(static_cast<ASTNode *>(symtab_lookup(g_funcs, n->data.call.name)));
+            if (found != indices.end()) edges[i].push_back(found->second);
+        });
+
+    std::vector<int> number(count, -1), low(count), stack;
+    std::vector<bool> active(count, false);
+    int next = 0;
+    std::function<void(int)> visit = [&](int v) {
+        number[v] = low[v] = next++;
+        stack.push_back(v); active[v] = true;
+        for (int w : edges[v]) {
+            if (number[w] == -1) { visit(w); low[v] = std::min(low[v], low[w]); }
+            else if (active[w]) low[v] = std::min(low[v], number[w]);
+        }
+        if (low[v] != number[v]) return;
+        std::unordered_set<ASTNode *> group;
+        int w;
+        do {
+            w = stack.back(); stack.pop_back(); active[w] = false;
+            group.insert(functions[w]);
+        } while (w != v);
+        // Source order within a group keeps diagnostics deterministic.
+        for (int i = 0; i < count; ++i) {
+            ASTNode *fn = functions[i];
+            if (!group.count(fn)) continue;
+            SymTab *scope = fn->data.func.scope;
+            visible[scope] = 0;
+            for (int p = 0; p < fn->data.func.param_count; ++p) {
+                if (lookup_local(scope, fn->data.func.params[p].name))
+                    error_at(fn->line, "duplicate parameter '%s'", fn->data.func.params[p].name);
+                ++visible[scope];
+            }
+            check_stmt(scope, fn->data.func.body, fn->data.func.ret_type);
+            // Both emitters supply zero on fallthrough, so it constrains an
+            // inferred result too. A pointer result must return on every path.
+            if (!returns(fn->data.func.body))
+                expect(type_int(), fn->data.func.ret_type, fn->line, "fallthrough result");
+        }
+        std::vector<Type *> environment;
+        for (SymTab *scope = var_env; scope; scope = scope->parent)
+            for (int i = 0; i < scope->count; ++i)
+                environment.push_back(static_cast<Type *>(scope->entries[i].value));
+        for (int i = 0; i < g_funcs->count; ++i) {
+            ASTNode *fn = static_cast<ASTNode *>(g_funcs->entries[i].value);
+            if (group.count(fn)) continue;
+            auto scheme = schemes.find(fn);
+            auto vars = type_free_vars(signature(fn));
+            for (Type *t : vars)
+                if (scheme == schemes.end() ||
+                    std::find(scheme->second.quantified.begin(), scheme->second.quantified.end(), t)
+                        == scheme->second.quantified.end()) environment.push_back(t);
+        }
+        for (int i = 0; i < count; ++i)
+            if (group.count(functions[i]))
+                schemes[functions[i]] = type_generalize(signature(functions[i]), environment);
+    };
+    for (int i = 0; i < count; ++i) if (number[i] == -1) visit(i);
 }
 
 /* ---- built-in (extern) function signatures ---------------------------- */
@@ -376,8 +519,12 @@ int typecheck(ASTNode *program, SymTab *type_env, SymTab *func_env,
     g_ops   = op_env;
 
     error_reset();
+    schemes.clear();
+    visible.clear();
     construct(program);                  /* pass 1: signatures */
+    if (error_count()) return error_count();
     check_functions(program, var_env);   /* pass 2: bodies     */
+    if (!error_count()) regions_analyze(program);
     return error_count();
 }
 

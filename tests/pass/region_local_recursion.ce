@@ -1,0 +1,2 @@
+sum(n) { let p=alloc(8); store(p,n); if(n==0) return load(p); return load(p)+sum(n-1); }
+main() { print_int(sum(100)); return 0; }

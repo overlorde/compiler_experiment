@@ -28,17 +28,22 @@ jobs:
       - name: Install Emscripten
         run: |
           git clone -q --depth 1 https://github.com/emscripten-core/emsdk.git ../emsdk
-          ../emsdk/emsdk install latest
-          ../emsdk/emsdk activate latest
+          ../emsdk/emsdk install 6.0.3
+          ../emsdk/emsdk activate 6.0.3
 
       - name: Build wasm
-        run: source ../emsdk/emsdk_env.sh && make wasm
+        run: |
+          test "$(cat VERSION)" = "$GITHUB_REF_NAME"
+          source ../emsdk/emsdk_env.sh
+          make wasm
+          make test-wasm
+          python3 -c 'import json,os; assert json.load(open("build/version.json"))["compiler_commit"] == os.environ["GITHUB_SHA"]'
 
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
-            build/compiler.js build/compiler.wasm \
+            build/compiler.js build/compiler.wasm build/version.json \
             --title "$GITHUB_REF_NAME" \
             --notes "ce_compile wasm build from ${GITHUB_SHA::7}. Suite green (incl. differential IR checks)."

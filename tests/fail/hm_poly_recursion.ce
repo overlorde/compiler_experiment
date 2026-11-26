@@ -1,0 +1,2 @@
+grow(n, x) { if (n == 0) return x; let p = alloc(8); store(p, x); return load(grow(n - 1, p)); }
+main() { return 0; }

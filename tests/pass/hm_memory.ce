@@ -1,0 +1,10 @@
+write(p, v) { store(p, v); return 0; }
+read(p) { return load(p); }
+next(p) { return offset(p, 1); }
+main() {
+    let a = alloc(16);
+    auto b = alloc(8);
+    write(a, 41); write(next(a), 42); write(b, 'D');
+    print_int(read(a)); print_int(read(next(a))); print_char(read(b));
+    return 0;
+}

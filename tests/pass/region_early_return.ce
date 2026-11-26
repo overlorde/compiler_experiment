@@ -1,0 +1,2 @@
+work(n) { let p=alloc(8); store(p,n); if(n==1) return load(p); else return load(p)+1; }
+main() { print_int(work(1)); print_int(work(2)); return 0; }

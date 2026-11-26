@@ -24,6 +24,23 @@
  */
 typedef void (*ErrorSink)(void *userdata, const char *msg);
 
+struct Type;
+enum DiagnosticCode { DIAGNOSTIC_TYPE_MISMATCH };
+struct Diagnostic {
+    DiagnosticCode code;
+    int line;
+    const char *context;
+    const Type *expected;
+    const Type *actual;
+};
+/* Optional observation hook, called before text formatting. Fields are borrowed
+ * for the callback only; consumers must snapshot any retained information.
+ * Installing it does not replace the text sink or change error counting. */
+typedef void (*DiagnosticSink)(void *userdata, const Diagnostic *diagnostic);
+void error_set_diagnostic_sink(DiagnosticSink sink, void *userdata);
+void error_type_mismatch(int line, const char *context,
+                         const Type *expected, const Type *actual);
+
 /* Install a sink. Passing NULL restores the default stderr sink. */
 void error_set_sink(ErrorSink sink, void *userdata);
 

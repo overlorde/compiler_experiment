@@ -1,0 +1,2 @@
+main() { let x = 41; { let x = x + 1; print_int(x); }
+    print_int(x); return 0; }

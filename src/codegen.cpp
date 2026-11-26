@@ -127,6 +127,7 @@ static Value *gen_expr(IRBuilder<> &b, Module &mod, SymStack &st, ASTNode *node)
     assert(node);
     switch (node->kind) {
     case NODE_INT_LIT:
+    case NODE_BOOL_LIT:
         return b.getInt64(node->data.int_lit.value);
     case NODE_CHAR_LIT:
         return b.getInt64(node->data.char_lit.value);
@@ -192,6 +193,7 @@ static int gen_block(IRBuilder<> &b, Module &mod, SymStack &st, ASTNode *node) {
     // scope at block exit. The C version did this with `int saved = st->count`.
     size_t saved = st.size();
     for (int i = 0; i < node->data.block.count; i++) {
+        if (block_has_terminator(b)) break;
         if (gen_stmt(b, mod, st, node->data.block.stmts[i]))
             return 1;
     }
@@ -200,7 +202,7 @@ static int gen_block(IRBuilder<> &b, Module &mod, SymStack &st, ASTNode *node) {
 }
 
 static int gen_stmt(IRBuilder<> &b, Module &mod, SymStack &st, ASTNode *node) {
-    assert(node);
+    if (!node) return 0;
     switch (node->kind) {
     case NODE_RETURN: {
         Value *v = gen_expr(b, mod, st, node->data.ret.expr);
@@ -210,6 +212,7 @@ static int gen_stmt(IRBuilder<> &b, Module &mod, SymStack &st, ASTNode *node) {
         llvm::Type *ret_ty = b.GetInsertBlock()->getParent()->getReturnType();
         if (v->getType() != ret_ty)
             v = b.CreateTrunc(v, ret_ty, "ret_trunc");
+        b.CreateCall(mod.getFunction("__ce_region_leave"));
         b.CreateRet(v);
         return 0;
     }
@@ -218,12 +221,12 @@ static int gen_stmt(IRBuilder<> &b, Module &mod, SymStack &st, ASTNode *node) {
         assert(node->data.var_decl.name);
         AllocaInst *a = b.CreateAlloca(b.getInt64Ty(), nullptr,
                                        node->data.var_decl.name);
-        sym_add(st, node->data.var_decl.name, a);
         if (node->data.var_decl.init) {
             Value *v = gen_expr(b, mod, st, node->data.var_decl.init);
             if (!v) return 1;
             b.CreateStore(v, a);
         }
+        sym_add(st, node->data.var_decl.name, a);
         return 0;
     }
 
@@ -337,8 +340,7 @@ static int gen_stmt(IRBuilder<> &b, Module &mod, SymStack &st, ASTNode *node) {
     }
 
     default:
-        assert(false && "gen_stmt: unhandled NodeKind in statement position");
-        return 1;
+        return gen_expr(b, mod, st, node) ? 0 : 1;
     }
 }
 
@@ -426,6 +428,9 @@ int codegen(ASTNode *ast, const char *output_path, CodegenOptions *opts) {
         Function::Create(word_to_word,  Function::ExternalLinkage, "load",       module.get());
         Function::Create(word2_to_word, Function::ExternalLinkage, "store",      module.get());
         Function::Create(word2_to_word, Function::ExternalLinkage, "offset",     module.get());
+        Function::Create(word_to_word, Function::ExternalLinkage, "__ce_region_enter", module.get());
+        Function::Create(FunctionType::get(word, false), Function::ExternalLinkage,
+                         "__ce_region_leave", module.get());
     }
 
     int func_count = ast->data.program.count;
@@ -451,6 +456,8 @@ int codegen(ASTNode *ast, const char *output_path, CodegenOptions *opts) {
 
         BasicBlock *entry = BasicBlock::Create(ctx, "entry", func);
         builder.SetInsertPoint(entry);
+        builder.CreateCall(module->getFunction("__ce_region_enter"),
+                           {builder.getInt64(fn->data.func.region_policy)});
 
         SymStack st;
         // Alloca + store each parameter so it lives in a slot the rest of
@@ -465,7 +472,13 @@ int codegen(ASTNode *ast, const char *output_path, CodegenOptions *opts) {
 
         if (gen_stmt(builder, *module, st, fn->data.func.body))
             return 1;
+        if (!block_has_terminator(builder)) {
+            builder.CreateCall(module->getFunction("__ce_region_leave"));
+            builder.CreateRet(ConstantInt::get(func->getReturnType(), 0));
+        }
     }
+
+    if (verifyModule(*module, &errs())) return 1;
 
     // 3. Optimization pipeline (mem2reg gateway + standard cleanups).
     // Build a TargetMachine once -- both the optimizer (for target-aware

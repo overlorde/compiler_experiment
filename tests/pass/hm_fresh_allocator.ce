@@ -1,0 +1,3 @@
+new_cell() { return alloc(8); }
+main() { let a = new_cell(); let b = new_cell(); store(a, 42); store(b, 'E');
+    print_int(load(a)); print_char(load(b)); return 0; }

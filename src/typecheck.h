@@ -7,11 +7,14 @@
 /*
  * Static type checker.
  *
- * Two passes over the program:
+ * Pipeline:
  *   1. construct: register every function signature in func_env, so calls
  *      (and mutual recursion) resolve regardless of definition order.
- *   2. check: walk each function body bottom-up, binding locals into
- *      var_env scopes and applying the typing rules.
+ *   2. infer: check dependency groups before callers, constrain recursive
+ *      signatures monomorphically, then generalize the group's signatures.
+ *      Function uses instantiate quantified variables consistently. Locals
+ *      stay monomorphic and become visible after their initializer.
+ *   3. choose conservative function region policies after inference succeeds.
  *
  * Errors are reported through error.h (error_at); the return value is the
  * number of errors found -- 0 means well typed, nonzero means the caller

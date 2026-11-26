@@ -11,9 +11,8 @@
  * JS splits on the first newline. The string lives in a static buffer that
  * each call overwrites, so there is nothing for the caller to free.
  *
- * Known leak: the AST's scope tables (malloc'd by scopes_build) are not
- * reclaimed by ast_free, so each call leaks a few hundred bytes. Fine for
- * a debounced editor session; revisit if it ever matters.
+ * ast_free reclaims lexical scope tables. Type nodes and interned pointer
+ * names currently retain process lifetime storage.
  *
  * Compiled into the native cc as well (it's harmless there) so the regular
  * build keeps it warning-clean and the native smoke test can call it. */
@@ -40,6 +39,16 @@ void buffer_sink(void *userdata, const char *msg) {
 }
 
 } // namespace
+
+#ifndef CE_BUILD_VERSION
+#define CE_BUILD_VERSION "development"
+#endif
+#ifndef CE_BUILD_INFO
+#define CE_BUILD_INFO "{}"
+#endif
+
+extern "C" const char *ce_version() { return CE_BUILD_VERSION; }
+extern "C" const char *ce_build_info() { return CE_BUILD_INFO; }
 
 extern "C" const char *ce_compile(const char *source) {
     std::string errbuf;

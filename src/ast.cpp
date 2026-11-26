@@ -20,6 +20,12 @@ ASTNode *ast_char_lit(int value) {
     return node;
 }
 
+ASTNode *ast_bool_lit(int value) {
+    ASTNode *node = ast_int_lit(value);
+    if (node) node->kind = NODE_BOOL_LIT;
+    return node;
+}
+
 ASTNode *ast_binary_op(BinaryOp op, ASTNode *left, ASTNode *right) {
     ASTNode *node = (ASTNode *)calloc(1, sizeof(ASTNode));
     if (!node) return NULL;
@@ -186,6 +192,9 @@ void ast_print(ASTNode *node, int indent) {
         case NODE_INT_LIT:
             printf("IntLit(%d)\n", node->data.int_lit.value);
             break;
+        case NODE_BOOL_LIT:
+            printf("BoolLit(%s)\n", node->data.int_lit.value ? "true" : "false");
+            break;
         case NODE_CHAR_LIT:
             printf("CharLit('%c' = %d)\n",
                    node->data.char_lit.value, node->data.char_lit.value);
@@ -275,6 +284,7 @@ void ast_free(ASTNode *node) {
 
     switch (node->kind) {
         case NODE_INT_LIT:
+        case NODE_BOOL_LIT:
             break;
         case NODE_CHAR_LIT:
             break;
@@ -321,6 +331,7 @@ void ast_free(ASTNode *node) {
             for (int i = 0; i < node->data.block.count; i++)
                 ast_free(node->data.block.stmts[i]);
             free(node->data.block.stmts);
+            free(node->data.block.scope);
             break;
         case NODE_EXPR_STMT:
             ast_free(node->data.expr_stmt.expr);
@@ -339,8 +350,46 @@ void ast_free(ASTNode *node) {
             ast_free(node->data.for_stmt.cond);
             ast_free(node->data.for_stmt.post);
             ast_free(node->data.for_stmt.body);
+            free(node->data.for_stmt.scope);
             break;
     }
 
     free(node);
+}
+
+void ast_walk(ASTNode *n, const std::function<void(ASTNode *)> &visit) {
+    if (!n) return;
+    visit(n);
+    switch (n->kind) {
+    case NODE_PROGRAM:
+        for (int i = 0; i < n->data.program.count; ++i)
+            ast_walk(n->data.program.functions[i], visit);
+        break;
+    case NODE_FUNCTION: ast_walk(n->data.func.body, visit); break;
+    case NODE_BLOCK:
+        for (int i = 0; i < n->data.block.count; ++i)
+            ast_walk(n->data.block.stmts[i], visit);
+        break;
+    case NODE_BINARY_OP:
+        ast_walk(n->data.bin.left, visit); ast_walk(n->data.bin.right, visit); break;
+    case NODE_UNARY_OP: ast_walk(n->data.unary.operand, visit); break;
+    case NODE_RETURN: ast_walk(n->data.ret.expr, visit); break;
+    case NODE_VAR_DECL: ast_walk(n->data.var_decl.init, visit); break;
+    case NODE_ASSIGN: ast_walk(n->data.assign.value, visit); break;
+    case NODE_EXPR_STMT: ast_walk(n->data.expr_stmt.expr, visit); break;
+    case NODE_IF:
+        ast_walk(n->data.if_stmt.cond, visit);
+        ast_walk(n->data.if_stmt.then_body, visit);
+        ast_walk(n->data.if_stmt.else_body, visit); break;
+    case NODE_WHILE:
+        ast_walk(n->data.while_stmt.cond, visit);
+        ast_walk(n->data.while_stmt.body, visit); break;
+    case NODE_FOR:
+        ast_walk(n->data.for_stmt.init, visit); ast_walk(n->data.for_stmt.cond, visit);
+        ast_walk(n->data.for_stmt.post, visit); ast_walk(n->data.for_stmt.body, visit); break;
+    case NODE_CALL:
+        for (int i = 0; i < n->data.call.arg_count; ++i) ast_walk(n->data.call.args[i], visit);
+        break;
+    default: break;
+    }
 }

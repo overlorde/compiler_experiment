@@ -163,6 +163,8 @@ int main(int argc, char **argv) {
 
     scopes_build(ast, &var_env, NULL);
 
+    int error_code = typecheck(ast, &type_env, &func_env, &var_env, &op_env);
+
     /* Inspect what build produced. dump_scopes walks the scope TREE top-down (one
        line per scope, indented by depth); the two env_dumps below show the two
        flat root environments. Each SymTab stores values as void*, so env_dump
@@ -173,11 +175,10 @@ int main(int argc, char **argv) {
         env_dump(stdout, "var_env",  &var_env,  render_type);
     }
 
-    int error_code = typecheck(ast, &type_env, &func_env, &var_env, &op_env);
-
     // error code
     if(error_code){
         fprintf(stderr, "error: typecheck failed\n");
+        ast_free(ast);
         free(source);
         return 1;
     }

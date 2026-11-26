@@ -1,0 +1,2 @@
+make(x) { let inner=alloc(8); store(inner,x); let outer=alloc(8); store(outer,inner); return outer; }
+main() { let p=make(42); print_int(load(load(p))); let q=make('A'); print_char(load(load(q))); return 0; }

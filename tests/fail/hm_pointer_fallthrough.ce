@@ -1,0 +1,2 @@
+ptr<int> f() { if (true) return alloc<int>(8); }
+main() { return 0; }

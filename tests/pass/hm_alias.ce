@@ -1,0 +1,2 @@
+main() { let p = alloc(8); let q = p; store(q, 42);
+    print_int(load(p)); return 0; }

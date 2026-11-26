@@ -138,6 +138,7 @@ static std::string emit_expr(Printer &p, ASTNode *node) {
     assert(node);
     switch (node->kind) {
     case NODE_INT_LIT:
+    case NODE_BOOL_LIT:
         return std::to_string(node->data.int_lit.value);
     case NODE_CHAR_LIT:
         return std::to_string(node->data.char_lit.value);
@@ -206,6 +207,7 @@ static void emit_stmt(Printer &p, ASTNode *node) {
     switch (node->kind) {
     case NODE_RETURN: {
         std::string v = emit_expr(p, node->data.ret.expr);
+        inst(p, "call i64 @__ce_region_leave()");
         // main returns i32 (crt0's contract) while the language word is
         // i64, so its return value gets narrowed first.
         if (p.in_main) {
@@ -220,10 +222,13 @@ static void emit_stmt(Printer &p, ASTNode *node) {
 
     case NODE_VAR_DECL: {
         std::string a = emit_alloca(p, node->data.var_decl.name);
+        // Initializer sees the enclosing binding, just as in the checker.
+        p.syms.pop_back();
         if (node->data.var_decl.init) {
             std::string v = emit_expr(p, node->data.var_decl.init);
             inst(p, "store i64 " + v + ", ptr " + a + ", align 8");
         }
+        p.syms.push_back({node->data.var_decl.name, a});
         return;
     }
 
@@ -325,7 +330,7 @@ static void emit_stmt(Printer &p, ASTNode *node) {
     }
 
     default:
-        assert(false && "emit_stmt: unhandled NodeKind in statement position");
+        (void)emit_expr(p, node);
     }
 }
 
@@ -345,6 +350,7 @@ static void emit_function(Printer &p, ASTNode *fn) {
     }
     p.out += ") {\n";
     label(p, "entry");
+    inst(p, "call i64 @__ce_region_enter(i64 " + std::to_string(fn->data.func.region_policy) + ")");
 
     // Alloca + store each parameter so it lives in a slot the body can
     // load/store, same shape as locals.
@@ -359,8 +365,10 @@ static void emit_function(Printer &p, ASTNode *fn) {
     // Control flow can fall off the end (e.g. an empty ifmerge after both
     // branches returned). codegen leaves that block open; we close it so
     // the output always assembles.
-    if (!p.terminated)
+    if (!p.terminated) {
+        inst(p, "call i64 @__ce_region_leave()");
         terminator(p, p.in_main ? "ret i32 0" : "ret i64 0");
+    }
 
     p.out += "}\n";
 }
@@ -379,6 +387,8 @@ std::string irprint_module(ASTNode *ast) {
     p.out += "declare i64 @load(i64)\n";
     p.out += "declare i64 @store(i64, i64)\n";
     p.out += "declare i64 @offset(i64, i64)\n";
+    p.out += "declare i64 @__ce_region_enter(i64)\n";
+    p.out += "declare i64 @__ce_region_leave()\n";
 
     for (int i = 0; i < ast->data.program.count; i++) {
         p.out += "\n";

@@ -1,0 +1,2 @@
+nothing() { }
+main() { print_int(nothing()); }
